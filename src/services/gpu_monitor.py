@@ -39,21 +39,62 @@ class GPUMonitor:
             # 3. Fallback if vendor specific init failed
             if not self._gpu_available:
                 self._init_generic()
+            
+            # 4. Cleanup name
+            self.gpu_name = self._sanitize_name(self.gpu_name)
                 
             self._initialized = True
+
+    def _sanitize_name(self, name):
+        """Clean up GPU name by removing trademark symbols and extra whitespace."""
+        if not name:
+            return "Unknown GPU"
+            
+        # Handle byte strings
+        if isinstance(name, bytes):
+            try:
+                name = name.decode('utf-8', errors='ignore')
+            except:
+                name = str(name)
+
+        # Remove common symbols that cause encoding issues in some UI environments
+        replacements = {
+            "™": "",
+            "(TM)": "",
+            "®": "",
+            "(R)": "",
+            "©": "",
+            "(C)": "",
+            "Corporation": "",
+            "Graphics": "",
+            "Series": "",
+            "™": "",  # Double check common variants
+            "": ""   # Replacement character
+        }
+        
+        for old, new in replacements.items():
+            name = name.replace(old, new)
+            
+        # Also handle case-insensitive replacements for some
+        name = name.replace("NVIDIA", "Nvidia")
+        
+        # Remove multiple spaces and strip
+        name = " ".join(name.split())
+        return name
 
     def _detect_vendor(self):
         """Detect GPU vendor using PowerShell."""
         try:
-            cmd = 'powershell -Command "Get-CimInstance Win32_VideoController | Select-Object Caption | ConvertTo-Json"'
-            output = subprocess.check_output(cmd, shell=True).decode().strip()
+            # Use PowerShell with UTF-8 encoding for reliable character handling
+            cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-CimInstance Win32_VideoController | Select-Object Caption | ConvertTo-Json"'
+            output = subprocess.check_output(cmd, shell=True).decode('utf-8', errors='ignore').strip()
             if not output: return "Unknown"
             
             data = json.loads(output)
             if isinstance(data, list):
-                data = data[0]
+                data = data[0] if data else {}
             
-            name = data.get("Caption", "").upper()
+            name = str(data.get("Caption", "")).upper()
             if "NVIDIA" in name: return "NVIDIA"
             if "AMD" in name or "RADEON" in name: return "AMD"
             if "INTEL" in name: return "Intel"
@@ -96,8 +137,8 @@ class GPUMonitor:
     def _init_generic(self):
         """Fallback to PowerShell for basic GPU info."""
         try:
-            cmd = 'powershell -Command "Get-CimInstance Win32_VideoController | Select-Object -First 1 Caption, AdapterRAM | ConvertTo-Json"'
-            output = subprocess.check_output(cmd, shell=True).decode().strip()
+            cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-CimInstance Win32_VideoController | Select-Object -First 1 Caption, AdapterRAM | ConvertTo-Json"'
+            output = subprocess.check_output(cmd, shell=True).decode('utf-8', errors='ignore').strip()
             if output:
                 data = json.loads(output)
                 self.gpu_name = data.get("Caption", "Generic GPU")
@@ -161,17 +202,23 @@ class GPUMonitor:
                 usage = self._adl_device.getCurrentUsage()
                 try: temp = self._adl_device.getCurrentTemperature()
                 except: temp = 0
-                try: fan = self._adl_device.getCurrentFanSpeed()
-                except: fan = 0
+                try: 
+                    fan_obj = self._adl_device.getCurrentFanSpeed()
+                    # pyadl can return a FanSpeed object or sometimes just a value/dict
+                    fan = getattr(fan_obj, 'iSpeed', fan_obj)
+                    if not isinstance(fan, (int, float)):
+                        fan = 0
+                except: 
+                    fan = 0
                 
                 generic = self._get_generic_stats()
                 
                 return {
                     "name": self.gpu_name,
                     "gpu_usage": usage,
-                    "vram_total": self.vram_total or generic['vram_total'],
-                    "vram_used": generic['vram_used'],
-                    "vram_percent": generic['vram_percent'],
+                    "vram_total": self.vram_total or (generic['vram_total'] if generic else 0),
+                    "vram_used": generic['vram_used'] if generic else 0,
+                    "vram_percent": generic['vram_percent'] if generic else 0,
                     "temp": temp,
                     "power_draw": 0,
                     "fan_speed": fan,
