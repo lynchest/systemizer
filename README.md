@@ -92,7 +92,27 @@ Systemizer uses a **Thread-Based Architecture** to separate data collection from
 
 ---
 
-## 📄 License
+## �️ Windows SmartScreen Warning
+
+When you run the application for the first time, you may see a "Windows protected your PC" warning. This is because the application is not digitally signed (which requires a paid certificate).
+
+**How to bypass:**
+1. Click on **"More info"** (Ek bilgi).
+2. Click on **"Run anyway"** (Yine de çalıştır).
+
+---
+
+## 🛡️ Windows SmartScreen Uyarısı
+
+Uygulamayı ilk kez çalıştırdığınızda "Windows kişisel bilgisayarınızı korudu" şeklinde bir uyarı alabilirsiniz. Bunun sebebi uygulamanın dijital olarak imzalanmamış olmasıdır (sertifika maliyetleri nedeniyle).
+
+**Nasıl geçilir:**
+1. **"Ek bilgi"** yazısına tıklayın.
+2. **"Yine de çalıştır"** butonuna tıklayın.
+
+---
+
+## �📄 License
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 ---
