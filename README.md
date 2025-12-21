@@ -2,6 +2,9 @@
 
 **Systemizer** is a high-performance, modern, and aesthetically pleasing system monitoring application built with Python and PySide6. It provides real-time insights into your hardware's performance with a focus on efficiency and a smooth user experience.
 
+![Systemizer Preview 1](assets/preview1.png)
+![Systemizer Preview 2](assets/preview2.png)
+
 ---
 
 ## ✨ Key Features

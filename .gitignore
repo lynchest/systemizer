@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+upx-5.0.2-win64/
 *.py[cod]
 *$py.class
 
