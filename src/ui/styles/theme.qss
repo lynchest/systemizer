@@ -1,0 +1,69 @@
+/* Global Styling */
+QMainWindow {
+    background-color: #1e1e2e;
+}
+
+QWidget {
+    font-family: "Segoe UI", "Roboto", sans-serif;
+    font-size: 14px;
+    color: #cdd6f4;
+}
+
+/* Sidebar */
+QFrame#Sidebar {
+    background-color: #181825;
+    border-right: 1px solid #313244;
+}
+
+QPushButton#NavButton {
+    background-color: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    text-align: left;
+    color: #a6adc8;
+    font-weight: bold;
+}
+
+QPushButton#NavButton:hover {
+    background-color: #313244;
+    color: #cdd6f4;
+}
+
+QPushButton#NavButton:checked {
+    background-color: #45475a;
+    color: #ffffff;
+    border-left: 3px solid #89b4fa;
+}
+
+/* Cards */
+QFrame.Card {
+    background-color: #313244;
+    border-radius: 12px;
+    border: 1px solid #45475a;
+}
+
+QLabel#CardTitle {
+    color: #a6adc8;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+QLabel#CardValue {
+    color: #cdd6f4;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+/* Progress Bar */
+QProgressBar {
+    border: none;
+    background-color: #45475a;
+    border-radius: 4px;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background-color: #89b4fa;
+    border-radius: 4px;
+}
