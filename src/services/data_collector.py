@@ -21,7 +21,7 @@ class DataCollectorThread(QThread):
         self.tick_count = 0
         
         # Check if GPU is available
-        self.has_gpu = self.gpu_monitor._handle is not None
+        self.has_gpu = self.gpu_monitor._gpu_available
         
         # Network tracking for speed calculation
         net = self.sys_monitor.get_network_stats()

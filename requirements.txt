@@ -3,3 +3,4 @@ pynvml
 psutil
 pyqtgraph
 numpy
+pyadl

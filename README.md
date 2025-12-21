@@ -8,7 +8,10 @@
 
 - **⚡ Real-time Monitoring**: Monitor CPU, RAM, GPU, Disk, and Network usage with high precision.
 - **🧵 Multithreaded Architecture**: All data collection happens in background threads, ensuring the UI remains responsive and fluid (60 FPS) at all times.
-- **🎮 GPU Optimization**: Smart detection of NVIDIA GPUs with "Lazy Loading" to minimize overhead when a GPU is not present.
+- **🎮 Multi-Vendor GPU Support**: 
+    - **NVIDIA**: Full monitoring via `pynvml` (Usage, Temp, Power, Fan, Clocks).
+    - **AMD**: Enhanced support via `pyadl` (Usage, Temp, Fan) and fallback monitoring.
+    - **Intel & Generic**: Basic usage and VRAM monitoring via Windows Performance Counters.
 - **🔍 Dirty Checking**: Intelligent UI updates—only repaints when data actually changes, drastically reducing CPU/GPU usage.
 - **📊 Adaptive Update Rates**:
     - **Fast (1s)**: CPU, RAM, Network (high volatility)
@@ -25,6 +28,8 @@
 - **Metrics**: 
   - `psutil` (System-wide stats)
   - `pynvml` (NVIDIA GPU stats)
+  - `pyadl` (AMD GPU stats)
+  - Windows Performance Counters (Fallback / Intel)
 - **Packaging**: PyInstaller
 
 ---
@@ -33,7 +38,8 @@
 
 ### Prerequisites
 - Python 3.10 or higher
-- NVIDIA Drivers (for GPU monitoring)
+- Windows 10/11
+- (Optional) NVIDIA or AMD Drivers for detailed GPU monitoring
 
 ### Installation
 
@@ -66,7 +72,7 @@
 Systemizer uses a **Thread-Based Architecture** to separate data collection from UI rendering:
 
 1. **DataCollectorThread**: Operates in the background, making system calls without blocking the main event loop.
-2. **Signal-Slot Communication**: Uses Qt's thread-safe signal-slot mechanism to pass data to the UI.
+2. **Multi-Vendor GPU Backend**: A unified interface that detects your GPU vendor on startup and selects the best monitoring method (NVML, ADL, or Performance Counters).
 3. **Dirty Checking Logic**: Before any UI element is updated, it checks if the new value differs from the current one, preventing unnecessary draw calls.
 
 ---
@@ -77,7 +83,7 @@ Systemizer uses a **Thread-Based Architecture** to separate data collection from
 
 **Özellikler:**
 - **Arka Plan İşleme**: Tüm veri toplama işlemleri ayrı bir kanalda (thread) yapılır.
-- **Akıllı GPU İzleme**: NVIDIA GPU'ları otomatik algılar ve yoksa enerji tasarrufu moduna geçer.
+- **Geniş GPU Desteği**: NVIDIA, AMD ve Intel (dahili/harici) ekran kartlarını otomatik algılar ve izler.
 - **Düşük Kaynak Tüketimi**: "Dirty Checking" teknolojisi ile sadece veri değiştiğinde arayüzü günceller.
 - **Modern Tasarım**: Şık, modern ve kullanıcı dostu arayüz.
 
