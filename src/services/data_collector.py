@@ -1,6 +1,7 @@
 from PySide6.QtCore import QThread, Signal
 from src.services.system_monitor import SystemMonitor
 from src.services.gpu_monitor import GPUMonitor
+from src.settings import get_settings
 import time
 
 
@@ -17,8 +18,13 @@ class DataCollectorThread(QThread):
         super().__init__()
         self.sys_monitor = SystemMonitor()
         self.gpu_monitor = GPUMonitor()
+        self.settings = get_settings()
         self.running = True
         self.tick_count = 0
+        
+        # Track which statistics are enabled
+        self.enabled_stats = {}
+        self._load_enabled_stats()
         
         # Check if GPU is available
         self.has_gpu = self.gpu_monitor._gpu_available
@@ -30,6 +36,34 @@ class DataCollectorThread(QThread):
         
         # RAM Speed (fetched once)
         self.ram_speed = self.sys_monitor.get_ram_speed_info()
+    
+    def _load_enabled_stats(self):
+        """Load which statistics are enabled from settings."""
+        stats = self.settings.get_all_statistics()
+        for stat_key, enabled in stats.items():
+            self.enabled_stats[stat_key] = enabled
+    
+    def set_statistic_enabled(self, stat_key: str, enabled: bool):
+        """Enable or disable a specific statistic."""
+        self.enabled_stats[stat_key] = enabled
+    
+    def force_refresh_all(self):
+        """Force immediate refresh of all data."""
+        fast_data = self._collect_fast_data()
+        if fast_data:
+            self.fast_update.emit(fast_data)
+        
+        medium_data = self._collect_medium_data()
+        if medium_data:
+            self.medium_update.emit(medium_data)
+        
+        slow_data = self._collect_slow_data()
+        if slow_data:
+            self.slow_update.emit(slow_data)
+        
+        gpu_data = self._collect_gpu_data()
+        if gpu_data:
+            self.gpu_update.emit(gpu_data)
         
     def run(self):
         """Main loop running in background thread."""
@@ -38,22 +72,26 @@ class DataCollectorThread(QThread):
             
             # Fast updates (every 1 second)
             fast_data = self._collect_fast_data()
-            self.fast_update.emit(fast_data)
+            if fast_data:  # Only emit if there's data to send
+                self.fast_update.emit(fast_data)
             
             # Medium updates (every 5 seconds)
             if self.tick_count % 5 == 0:
                 medium_data = self._collect_medium_data()
-                self.medium_update.emit(medium_data)
+                if medium_data:
+                    self.medium_update.emit(medium_data)
             
             # Slow updates (every 30 seconds)
             if self.tick_count % 30 == 0:
                 slow_data = self._collect_slow_data()
-                self.slow_update.emit(slow_data)
+                if slow_data:
+                    self.slow_update.emit(slow_data)
             
             # GPU updates (every 1 second if GPU exists, every 300 seconds to check for new GPU)
             if self.has_gpu or self.tick_count % 300 == 0:
                 gpu_data = self._collect_gpu_data()
-                self.gpu_update.emit(gpu_data)
+                if gpu_data:
+                    self.gpu_update.emit(gpu_data)
                 
                 # Re-check if GPU became available
                 if not self.has_gpu and gpu_data['available']:
@@ -81,19 +119,30 @@ class DataCollectorThread(QThread):
         self.last_net_recv = net['bytes_recv']
         self.last_net_sent = net['bytes_sent']
         
-        return {
-            'cpu_usage': cpu['total_usage'],
-            'cpu_cores': len(cpu['per_core']),
-            'ram_percent': ram['percent'],
-            'ram_used': ram['used'],
-            'ram_total': ram['total'],
-            'ram_speed': self.ram_speed,
-            'net_down_speed': down_speed,
-            'net_up_speed': up_speed
-        }
+        # Only include enabled statistics
+        data = {}
+        if self.enabled_stats.get('cpu', True):
+            data['cpu_usage'] = cpu['total_usage']
+        if self.enabled_stats.get('cpu_cores', True):
+            data['cpu_cores'] = len(cpu['per_core'])
+        if self.enabled_stats.get('ram', True):
+            data['ram_percent'] = ram['percent']
+            data['ram_used'] = ram['used']
+            data['ram_total'] = ram['total']
+        if self.enabled_stats.get('ram_speed', True):
+            data['ram_speed'] = self.ram_speed
+        if self.enabled_stats.get('net_down', True):
+            data['net_down_speed'] = down_speed
+        if self.enabled_stats.get('net_up', True):
+            data['net_up_speed'] = up_speed
+        
+        return data if data else None
     
     def _collect_medium_data(self):
         """Collect moderately changing data (Processes)."""
+        if not self.enabled_stats.get('processes', True):
+            return None
+            
         proc_count = self.sys_monitor.get_process_stats()
         return {
             'process_count': proc_count
@@ -101,33 +150,60 @@ class DataCollectorThread(QThread):
     
     def _collect_slow_data(self):
         """Collect slowly changing data (Disk, Uptime)."""
-        disk = self.sys_monitor.get_disk_stats()
-        uptime_sec = self.sys_monitor.get_uptime()
-        hours = int(uptime_sec // 3600)
-        minutes = int((uptime_sec % 3600) // 60)
+        data = {}
         
-        return {
-            'disk_percent': disk['percent'],
-            'uptime_hours': hours,
-            'uptime_minutes': minutes
-        }
+        if self.enabled_stats.get('disk', True):
+            disk = self.sys_monitor.get_disk_stats()
+            data['disk_percent'] = disk['percent']
+        
+        if self.enabled_stats.get('uptime', True):
+            uptime_sec = self.sys_monitor.get_uptime()
+            hours = int(uptime_sec // 3600)
+            minutes = int((uptime_sec % 3600) // 60)
+            data['uptime_hours'] = hours
+            data['uptime_minutes'] = minutes
+        
+        return data if data else None
     
     def _collect_gpu_data(self):
         """Collect GPU data if available."""
+        # Check if any GPU stats are enabled
+        gpu_stats_enabled = any([
+            self.enabled_stats.get('gpu', True),
+            self.enabled_stats.get('vram', True),
+            self.enabled_stats.get('gpu_temp', True),
+            self.enabled_stats.get('gpu_power', True),
+            self.enabled_stats.get('gpu_fan', True),
+            self.enabled_stats.get('gpu_clock', True),
+        ])
+        
+        # If all GPU stats are disabled, don't collect
+        if not gpu_stats_enabled:
+            return None
+        
         gpu_stats = self.gpu_monitor.get_stats()
         
         if gpu_stats:
-            return {
+            data = {
                 'available': True,
-                'gpu_usage': gpu_stats['gpu_usage'],
-                'vram_used': int(gpu_stats['vram_used'] / 1024),  # GB
-                'vram_total': int(gpu_stats['vram_total'] / 1024), # GB
-                'vram_percent': gpu_stats['vram_percent'],
-                'temp': gpu_stats['temp'],
-                'power_draw': int(gpu_stats['power_draw']),
-                'fan_speed': gpu_stats['fan_speed'],
-                'core_clock': gpu_stats['core_clock']
             }
+            
+            if self.enabled_stats.get('gpu', True):
+                data['gpu_usage'] = gpu_stats['gpu_usage']
+            if self.enabled_stats.get('vram', True):
+                data['vram_used'] = int(gpu_stats['vram_used'] / 1024)  # GB
+                data['vram_total'] = int(gpu_stats['vram_total'] / 1024) # GB
+                data['vram_percent'] = gpu_stats['vram_percent']
+            if self.enabled_stats.get('gpu_temp', True):
+                data['temp'] = gpu_stats['temp']
+            if self.enabled_stats.get('gpu_power', True):
+                data['power_draw'] = int(gpu_stats['power_draw'])
+            if self.enabled_stats.get('gpu_fan', True):
+                data['fan_speed'] = gpu_stats['fan_speed']
+            if self.enabled_stats.get('gpu_clock', True):
+                data['core_clock'] = gpu_stats['core_clock']
+            
+            return data
         else:
             return {
                 'available': False

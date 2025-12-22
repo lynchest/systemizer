@@ -8,7 +8,7 @@ import sys
 PROJECT_NAME = "Systemizer"
 MAIN_FILE = "main.py"
 DIST_DIR = "dist"
-ICON_PATH = os.path.join("assets", "icon.png")
+ICON_PATH = os.path.join("assets", "icon.ico")
 # UPX klasörü (bu scriptin çalıştığı dizinde olduğu varsayılıyor)
 UPX_DIR = os.path.join(os.getcwd(), "upx-5.0.2-win64")
 
@@ -88,6 +88,9 @@ def build_application(version_tag):
         f"--icon={ICON_PATH}",
         "--clean",
         "--distpath", DIST_DIR,
+        # Dosya ve klasörleri ekle (Runtime erişimi için)
+        "--add-data", "assets;assets",
+        "--add-data", "src/ui/styles;src/ui/styles",
         # Gereksiz modülleri çıkar (Boyut küçültme)
         "--exclude-module", "tkinter",
         "--exclude-module", "unittest",

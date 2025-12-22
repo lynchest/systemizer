@@ -92,7 +92,7 @@ Systemizer uses a **Thread-Based Architecture** to separate data collection from
 
 ---
 
-## �️ Windows SmartScreen Warning
+## 🛡️ Windows SmartScreen Warning
 
 When you run the application for the first time, you may see a "Windows protected your PC" warning. This is because the application is not digitally signed (which requires a paid certificate).
 
