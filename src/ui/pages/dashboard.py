@@ -21,7 +21,7 @@ class DashboardPage(QWidget):
         self.init_ui()
         
         # Background data collection thread (replaces timer)
-        self.data_thread = DataCollectorThread()
+        self.data_thread = DataCollectorThread(self.settings)
         self.data_thread.fast_update.connect(self.on_fast_update)
         self.data_thread.medium_update.connect(self.on_medium_update)
         self.data_thread.slow_update.connect(self.on_slow_update)

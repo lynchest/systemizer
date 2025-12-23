@@ -1,0 +1,8 @@
+# Development and testing dependencies for the Systemizer project
+
+# The core testing framework
+pytest
+
+# A pytest plugin for mocking objects, which is essential for isolating
+# components during unit testing (e.g., mocking hardware calls).
+pytest-mock

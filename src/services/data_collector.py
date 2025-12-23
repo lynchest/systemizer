@@ -1,156 +1,169 @@
-from PySide6.QtCore import QThread, Signal
-from src.services.system_monitor import SystemMonitor
-from src.services.gpu_monitor import GPUMonitor
-from src.settings import get_settings
 import time
+from typing import Dict, Any, Optional
+
+from PySide6.QtCore import QThread, Signal
+
+from src.services.gpu_monitor import GPUMonitor
+from src.services.system_monitor import SystemMonitor
+from src.settings import Settings
+
+# Constants for update intervals in seconds
+# Makes the code more readable and easier to change.
+FAST_UPDATE_INTERVAL_S = 1
+MEDIUM_UPDATE_INTERVAL_S = 5
+SLOW_UPDATE_INTERVAL_S = 30
+GPU_RECHECK_INTERVAL_S = 300
 
 
 class DataCollectorThread(QThread):
-    """Background thread for collecting system and GPU data without blocking UI."""
-    
-    # Signals for different update frequencies
-    fast_update = Signal(dict)  # 1 second updates (CPU, RAM, Network)
-    medium_update = Signal(dict)  # 5 second updates (Processes)
-    slow_update = Signal(dict)  # 30 second updates (Disk, Uptime)
-    gpu_update = Signal(dict)  # 1 second GPU updates (or disabled if no GPU)
-    
-    def __init__(self):
-        super().__init__()
+    """
+    Background thread for collecting system and GPU data without blocking the UI.
+
+    This thread uses different update frequencies for various metrics to optimize performance.
+    - Fast (1s): CPU, RAM, Network (high volatility)
+    - Medium (5s): Process Count
+    - Slow (30s): Disk Usage, Uptime
+    - GPU (1s): GPU metrics (if available)
+
+    Attributes:
+        fast_update (Signal): Emits frequently updated data.
+        medium_update (Signal): Emits moderately updated data.
+        slow_update (Signal): Emits slowly updated data.
+        gpu_update (Signal): Emits GPU-specific data.
+    """
+
+    fast_update = Signal(dict)
+    medium_update = Signal(dict)
+    slow_update = Signal(dict)
+    gpu_update = Signal(dict)
+
+    def __init__(self, settings: Settings, parent=None):
+        """
+        Initializes the DataCollectorThread.
+
+        Args:
+            settings (Settings): The application settings object. This is dependency-injected
+                                 to improve testability and reduce coupling.
+            parent: Optional parent for the QThread.
+        """
+        super().__init__(parent)
+        self.settings = settings
         self.sys_monitor = SystemMonitor()
         self.gpu_monitor = GPUMonitor()
-        self.settings = get_settings()
-        self.running = True
-        self.tick_count = 0
-        
-        # Track which statistics are enabled
-        self.enabled_stats = {}
+
+        self.running: bool = True
+        self._tick_count: int = 0
+        self.enabled_stats: Dict[str, bool] = {}
         self._load_enabled_stats()
-        
-        # Check if GPU is available
-        self.has_gpu = self.gpu_monitor._gpu_available
-        
-        # Network tracking for speed calculation
-        net = self.sys_monitor.get_network_stats()
-        self.last_net_recv = net['bytes_recv']
-        self.last_net_sent = net['bytes_sent']
-        
-        # RAM Speed (fetched once)
-        self.ram_speed = self.sys_monitor.get_ram_speed_info()
-    
-    def _load_enabled_stats(self):
-        """Load which statistics are enabled from settings."""
-        stats = self.settings.get_all_statistics()
-        for stat_key, enabled in stats.items():
-            self.enabled_stats[stat_key] = enabled
-    
-    def set_statistic_enabled(self, stat_key: str, enabled: bool):
-        """Enable or disable a specific statistic."""
+
+        self.has_gpu: bool = self.gpu_monitor.is_gpu_available()
+
+        # Initialize network tracking for speed calculation
+        net_stats = self.sys_monitor.get_network_stats()
+        self._last_net_recv: int = net_stats['bytes_recv']
+        self._last_net_sent: int = net_stats['bytes_sent']
+
+        # RAM speed is fetched once as it doesn't change during runtime
+        self.ram_speed: str = self.sys_monitor.get_ram_speed_info()
+
+    def _load_enabled_stats(self) -> None:
+        """Loads which statistics are enabled from the settings object."""
+        self.enabled_stats = self.settings.get_all_statistics()
+
+    def set_statistic_enabled(self, stat_key: str, enabled: bool) -> None:
+        """Enables or disables a specific statistic."""
         self.enabled_stats[stat_key] = enabled
-    
-    def force_refresh_all(self):
-        """Force immediate refresh of all data."""
-        fast_data = self._collect_fast_data()
-        if fast_data:
-            self.fast_update.emit(fast_data)
-        
-        medium_data = self._collect_medium_data()
-        if medium_data:
-            self.medium_update.emit(medium_data)
-        
-        slow_data = self._collect_slow_data()
-        if slow_data:
-            self.slow_update.emit(slow_data)
-        
-        gpu_data = self._collect_gpu_data()
-        if gpu_data:
-            self.gpu_update.emit(gpu_data)
-        
-    def run(self):
-        """Main loop running in background thread."""
+
+    def run(self) -> None:
+        """Main loop running in the background thread."""
         while self.running:
             start_time = time.time()
-            
-            # Fast updates (every 1 second)
-            fast_data = self._collect_fast_data()
-            if fast_data:  # Only emit if there's data to send
+
+            if fast_data := self._collect_fast_data():
                 self.fast_update.emit(fast_data)
-            
-            # Medium updates (every 5 seconds)
-            if self.tick_count % 5 == 0:
-                medium_data = self._collect_medium_data()
-                if medium_data:
+
+            if self._tick_count % MEDIUM_UPDATE_INTERVAL_S == 0:
+                if medium_data := self._collect_medium_data():
                     self.medium_update.emit(medium_data)
-            
-            # Slow updates (every 30 seconds)
-            if self.tick_count % 30 == 0:
-                slow_data = self._collect_slow_data()
-                if slow_data:
+
+            if self._tick_count % SLOW_UPDATE_INTERVAL_S == 0:
+                if slow_data := self._collect_slow_data():
                     self.slow_update.emit(slow_data)
-            
-            # GPU updates (every 1 second if GPU exists, every 300 seconds to check for new GPU)
-            if self.has_gpu or self.tick_count % 300 == 0:
-                gpu_data = self._collect_gpu_data()
-                if gpu_data:
+
+            if self.has_gpu or self._tick_count % GPU_RECHECK_INTERVAL_S == 0:
+                if gpu_data := self._collect_gpu_data():
                     self.gpu_update.emit(gpu_data)
-                
-                # Re-check if GPU became available
-                if not self.has_gpu and gpu_data['available']:
-                    self.has_gpu = True
-            
-            self.tick_count += 1
-            
-            # Sleep for remaining time to maintain 1 second interval
-            elapsed = time.time() - start_time
-            sleep_time = max(0, 1.0 - elapsed)
-            time.sleep(sleep_time)
-    
-    def _collect_fast_data(self):
-        """Collect frequently changing data (CPU, RAM, Network)."""
-        # Consolidated call for CPU and RAM
-        cpu = self.sys_monitor.get_cpu_stats()
-        ram = self.sys_monitor.get_memory_stats()
+                    if not self.has_gpu and gpu_data.get('available', False):
+                        self.has_gpu = True
+
+            self._tick_count += 1
+            self._sleep_to_maintain_interval(start_time)
+
+    def _sleep_to_maintain_interval(self, start_time: float) -> None:
+        """Calculates and sleeps for the remaining time to maintain a 1-second interval."""
+        elapsed = time.time() - start_time
+        sleep_time = max(0, FAST_UPDATE_INTERVAL_S - elapsed)
+        time.sleep(sleep_time)
+
+    def stop(self) -> None:
+        """Stops the collection thread."""
+        self.running = False
+        self.wait()  # Wait for the thread to finish cleanly
+
+    def _collect_fast_data(self) -> Optional[Dict[str, Any]]:
+        """Collects frequently changing data (CPU, RAM, Network)."""
+        data: Dict[str, Any] = {}
         
-        # Network stats
-        net = self.sys_monitor.get_network_stats()
-        down_speed = (net['bytes_recv'] - self.last_net_recv) / 1024 / 1024  # MB/s
-        up_speed = (net['bytes_sent'] - self.last_net_sent) / 1024 / 1024  # MB/s
+        # Network speed calculation must happen before fetching latest stats
+        down_speed, up_speed = self._calculate_network_speed()
         
-        # Update last values
-        self.last_net_recv = net['bytes_recv']
-        self.last_net_sent = net['bytes_sent']
-        
-        # Only include enabled statistics
-        data = {}
-        if self.enabled_stats.get('cpu', True):
-            data['cpu_usage'] = cpu['total_usage']
-        if self.enabled_stats.get('cpu_cores', True):
-            data['cpu_cores'] = len(cpu['per_core'])
-        if self.enabled_stats.get('ram', True):
-            data['ram_percent'] = ram['percent']
-            data['ram_used'] = ram['used']
-            data['ram_total'] = ram['total']
-        if self.enabled_stats.get('ram_speed', True):
-            data['ram_speed'] = self.ram_speed
         if self.enabled_stats.get('net_down', True):
             data['net_down_speed'] = down_speed
         if self.enabled_stats.get('net_up', True):
             data['net_up_speed'] = up_speed
+
+        if self.enabled_stats.get('cpu', True) or self.enabled_stats.get('cpu_cores', True):
+            cpu_stats = self.sys_monitor.get_cpu_stats()
+            if self.enabled_stats.get('cpu', True):
+                data['cpu_usage'] = cpu_stats['total_usage']
+            if self.enabled_stats.get('cpu_cores', True):
+                data['cpu_cores'] = len(cpu_stats['per_core'])
         
+        if self.enabled_stats.get('ram', True):
+            ram_stats = self.sys_monitor.get_memory_stats()
+            data['ram_percent'] = ram_stats['percent']
+            data['ram_used'] = ram_stats['used']
+            data['ram_total'] = ram_stats['total']
+
+        if self.enabled_stats.get('ram_speed', True):
+            data['ram_speed'] = self.ram_speed
+
         return data if data else None
-    
-    def _collect_medium_data(self):
-        """Collect moderately changing data (Processes)."""
+
+    def _calculate_network_speed(self) -> (float, float):
+        """Calculates network download and upload speed in MB/s."""
+        net = self.sys_monitor.get_network_stats()
+        # Convert bytes to MB
+        bytes_to_mb = 1024 * 1024
+
+        down_speed = (net['bytes_recv'] - self._last_net_recv) / bytes_to_mb
+        up_speed = (net['bytes_sent'] - self._last_net_sent) / bytes_to_mb
+
+        self._last_net_recv = net['bytes_recv']
+        self._last_net_sent = net['bytes_sent']
+
+        return down_speed, up_speed
+
+    def _collect_medium_data(self) -> Optional[Dict[str, Any]]:
+        """Collects moderately changing data (Processes)."""
         if not self.enabled_stats.get('processes', True):
             return None
-            
-        proc_count = self.sys_monitor.get_process_stats()
-        return {
-            'process_count': proc_count
-        }
-    
-    def _collect_slow_data(self):
-        """Collect slowly changing data (Disk, Uptime)."""
-        data = {}
+
+        return {'process_count': self.sys_monitor.get_process_stats()}
+
+    def _collect_slow_data(self) -> Optional[Dict[str, Any]]:
+        """Collects slowly changing data (Disk, Uptime)."""
+        data: Dict[str, Any] = {}
         
         if self.enabled_stats.get('disk', True):
             disk = self.sys_monitor.get_disk_stats()
@@ -164,51 +177,42 @@ class DataCollectorThread(QThread):
             data['uptime_minutes'] = minutes
         
         return data if data else None
-    
-    def _collect_gpu_data(self):
-        """Collect GPU data if available."""
-        # Check if any GPU stats are enabled
-        gpu_stats_enabled = any([
-            self.enabled_stats.get('gpu', True),
-            self.enabled_stats.get('vram', True),
-            self.enabled_stats.get('gpu_temp', True),
-            self.enabled_stats.get('gpu_power', True),
-            self.enabled_stats.get('gpu_fan', True),
-            self.enabled_stats.get('gpu_clock', True),
-        ])
-        
-        # If all GPU stats are disabled, don't collect
+
+    def _collect_gpu_data(self) -> Optional[Dict[str, Any]]:
+        """Collects GPU data if available and if any GPU stat is enabled."""
+        gpu_stats_enabled = any(
+            self.enabled_stats.get(key, True) for key in
+            ['gpu', 'vram', 'gpu_temp', 'gpu_power', 'gpu_fan', 'gpu_clock']
+        )
+
         if not gpu_stats_enabled:
             return None
-        
+
         gpu_stats = self.gpu_monitor.get_stats()
+
+        if not gpu_stats:
+            return {'available': False}
+
+        # Helper to avoid repetition
+        def get_stat(key, default=None):
+            return gpu_stats.get(key, default)
+
+        data: Dict[str, Any] = {'available': True}
         
-        if gpu_stats:
-            data = {
-                'available': True,
-            }
+        if self.enabled_stats.get('gpu', True):
+            data['gpu_usage'] = get_stat('gpu_usage')
+        if self.enabled_stats.get('vram', True):
+            # Convert MB to GB for display
+            data['vram_used'] = int(get_stat('vram_used', 0) / 1024)
+            data['vram_total'] = int(get_stat('vram_total', 0) / 1024)
+            data['vram_percent'] = get_stat('vram_percent')
+        if self.enabled_stats.get('gpu_temp', True):
+            data['temp'] = get_stat('temp')
+        if self.enabled_stats.get('gpu_power', True):
+            data['power_draw'] = int(get_stat('power_draw', 0))
+        if self.enabled_stats.get('gpu_fan', True):
+            data['fan_speed'] = get_stat('fan_speed')
+        if self.enabled_stats.get('gpu_clock', True):
+            data['core_clock'] = get_stat('core_clock')
             
-            if self.enabled_stats.get('gpu', True):
-                data['gpu_usage'] = gpu_stats['gpu_usage']
-            if self.enabled_stats.get('vram', True):
-                data['vram_used'] = int(gpu_stats['vram_used'] / 1024)  # GB
-                data['vram_total'] = int(gpu_stats['vram_total'] / 1024) # GB
-                data['vram_percent'] = gpu_stats['vram_percent']
-            if self.enabled_stats.get('gpu_temp', True):
-                data['temp'] = gpu_stats['temp']
-            if self.enabled_stats.get('gpu_power', True):
-                data['power_draw'] = int(gpu_stats['power_draw'])
-            if self.enabled_stats.get('gpu_fan', True):
-                data['fan_speed'] = gpu_stats['fan_speed']
-            if self.enabled_stats.get('gpu_clock', True):
-                data['core_clock'] = gpu_stats['core_clock']
-            
-            return data
-        else:
-            return {
-                'available': False
-            }
-    
-    def stop(self):
-        """Stop the collection thread."""
-        self.running = False
+        return data
