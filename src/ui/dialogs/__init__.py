@@ -1,1 +1,1 @@
-# This file makes the dialogs package importable
+# This file makes the 'dialogs' directory a Python package.
