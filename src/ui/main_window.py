@@ -7,6 +7,7 @@ from PySide6.QtGui import QIcon
 from src.ui.pages.dashboard import DashboardPage
 from src.ui.dialogs.settings_dialog import SettingsDialog
 from src.settings import get_settings
+from src.utils import resource_path
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -19,7 +20,6 @@ class MainWindow(QMainWindow):
         self.settings = get_settings()
         
         # Set Icon
-        from main import resource_path
         self.setWindowIcon(QIcon(resource_path("assets/icon.png")))
         
         # Dashboard Page as central widget
@@ -72,7 +72,6 @@ class MainWindow(QMainWindow):
         layout.addStretch()
         
         # Settings button (use icon instead of emoji)
-        from main import resource_path
         settings_btn = QPushButton()
         settings_btn.setFixedSize(36, 36)
         settings_btn.setIcon(QIcon(resource_path("assets/gear.svg")))
