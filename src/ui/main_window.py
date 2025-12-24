@@ -12,7 +12,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SYSTEMIZER")
-        self.setFixedSize(900, 600) # Increased height for top bar with settings button
+        self.resize(900, 650) # Initial size, but resizable
+        self.setMinimumWidth(600) # Keep width fixed-ish or minimum
         
         # Initialize settings
         self.settings = get_settings()

@@ -1,6 +1,8 @@
-from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QGraphicsDropShadowEffect
-from PySide6.QtCore import Qt, QRectF
-from PySide6.QtGui import QPainter, QColor, QPen, QFont
+from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QGraphicsDropShadowEffect, QHBoxLayout, QPushButton
+from PySide6.QtCore import Qt, QRectF, Signal
+from PySide6.QtGui import QPainter, QColor, QPen, QFont, QIcon
+from PySide6.QtCore import QSize
+import webbrowser
 
 class StatCard(QFrame):
     def __init__(self, title, color="#89b4fa", parent=None):
@@ -99,3 +101,131 @@ class StatCard(QFrame):
         
         span_angle = int(-self.percent * 360 * 16 / 100)
         painter.drawArc(rect, 90 * 16, span_angle)
+
+class GPUUpdateCard(QFrame):
+    """Card for GPU driver update notifications."""
+    
+    check_clicked = Signal()
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setProperty("class", "UpdateCard")
+        self.setMinimumHeight(95)
+        
+        self.gpu_vendor = "Unknown"
+        self.has_update = False
+        self.current_version = None
+        self.latest_version = None
+        
+        # Style override for the card
+        self.setStyleSheet("""
+            QFrame.UpdateCard {
+                background-color: rgba(49, 50, 68, 150);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+            }
+        """)
+
+        # Shadow effect
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(15)
+        shadow.setXOffset(0)
+        shadow.setYOffset(4)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        self.setGraphicsEffect(shadow)
+
+        # Main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(12, 8, 12, 8)
+        main_layout.setSpacing(6)
+        
+        # Title
+        self.lbl_title = QLabel("Driver Kontrol")
+        self.lbl_title.setObjectName("CardTitle")
+        self.lbl_title.setStyleSheet("font-size: 9px; color: #a6adc8; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;")
+        main_layout.addWidget(self.lbl_title)
+        
+        # Status label
+        self.lbl_status = QLabel("Checking...")
+        self.lbl_status.setStyleSheet("font-size: 11px; color: #89b4fa; font-weight: 600;")
+        main_layout.addWidget(self.lbl_status)
+        
+        # Version info
+        self.lbl_version = QLabel("")
+        self.lbl_version.setStyleSheet("font-size: 9px; color: #a6adc8;")
+        self.lbl_version.setWordWrap(True)
+        main_layout.addWidget(self.lbl_version)
+        
+        # Button layout
+        button_layout = QHBoxLayout()
+        button_layout.setContentsMargins(0, 3, 0, 0)
+        button_layout.setSpacing(6)
+        button_layout.addStretch()
+        
+        self.btn_check = QPushButton("Update Kontrolü Yap")
+        self.btn_check.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(166, 227, 161, 220);
+                color: #000;
+                border: none;
+                border-radius: 5px;
+                padding: 5px 12px;
+                font-weight: 600;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: rgba(166, 227, 161, 255);
+            }
+            QPushButton:pressed {
+                background-color: rgba(137, 180, 250, 200);
+            }
+            QPushButton:disabled {
+                background-color: rgba(88, 91, 112, 100);
+                color: #6c7086;
+            }
+        """)
+        self.btn_check.setMinimumWidth(120)
+        self.btn_check.setFixedHeight(28)
+        self.btn_check.clicked.connect(self.on_check_clicked)
+        button_layout.addWidget(self.btn_check)
+        
+        main_layout.addLayout(button_layout)
+        main_layout.addStretch()
+    
+    def update_status(self, has_update: bool, vendor: str, current_version: str, latest_version: str):
+        """Update the card with new status information."""
+        self.has_update = has_update
+        self.gpu_vendor = vendor
+        self.current_version = current_version
+        self.latest_version = latest_version
+        
+        if vendor == "Unknown" or current_version is None:
+            self.lbl_status.setText("GPU Algılanamadı")
+            self.lbl_status.setStyleSheet("font-size: 13px; color: #9399b2; font-weight: 600;")
+            self.lbl_version.setText("")
+            self.btn_check.setEnabled(False)
+        elif has_update:
+            self.lbl_status.setText("⬆ Güncelleme Mevcut!")
+            self.lbl_status.setStyleSheet("font-size: 13px; color: #a6e3a1; font-weight: 600;")
+            self.lbl_version.setText(f"{vendor} Sürücü: {current_version} → {latest_version}")
+            self.lbl_version.setStyleSheet("font-size: 11px; color: #a6e3a1;")
+            self.btn_check.setEnabled(True)
+        else:
+            self.lbl_status.setText("✓ Güncel")
+            self.lbl_status.setStyleSheet("font-size: 13px; color: #b4befe; font-weight: 600;")
+            self.lbl_version.setText(f"{vendor} Sürücü: {current_version}")
+            self.lbl_version.setStyleSheet("font-size: 11px; color: #a6adc8;")
+            self.btn_check.setEnabled(True)
+    
+    def on_check_clicked(self):
+        """Handle check button click."""
+        self.btn_check.setEnabled(False)
+        self.lbl_status.setText("Kontrol Ediliyor...")
+        self.lbl_status.setStyleSheet("font-size: 13px; color: #89b4fa; font-weight: 600;")
+        self.check_clicked.emit()
+    
+    def set_checking(self):
+        """Set card to checking state."""
+        self.btn_check.setEnabled(False)
+        self.lbl_status.setText("Kontrol Ediliyor...")
+        self.lbl_status.setStyleSheet("font-size: 13px; color: #89b4fa; font-weight: 600;")

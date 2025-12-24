@@ -1,273 +1,435 @@
-from PySide6.QtWidgets import QWidget, QGridLayout, QVBoxLayout, QFrame, QLabel, QHBoxLayout
-from PySide6.QtCore import Qt, Slot
-from src.ui.widgets.cards import StatCard
+from PySide6.QtWidgets import QWidget, QGridLayout, QVBoxLayout, QFrame, QLabel, QHBoxLayout, QPushButton
+from PySide6.QtCore import Qt, Slot, QTimer, QPropertyAnimation, QEasingCurve, Property
+from PySide6.QtGui import QIcon
+from src.ui.widgets.cards import StatCard, GPUUpdateCard
 from src.services.gpu_monitor import GPUMonitor
 from src.services.system_monitor import SystemMonitor
 from src.services.data_collector import DataCollectorThread
+from src.services.gpu_driver_updater import GPUDriverUpdater
 from src.settings import get_settings
+from typing import Dict, Tuple, Optional
 
-class DashboardPage(QWidget):
-    def __init__(self):
-        super().__init__()
-        
-        self.gpu_monitor = GPUMonitor()
-        self.sys_monitor = SystemMonitor()
-        self.settings = get_settings()
-        
-        # Store card references for visibility control
-        self.cards = {}
-        self.sections = {}
-
-        self.init_ui()
-        
-        # Background data collection thread (replaces timer)
-        self.data_thread = DataCollectorThread()
-        self.data_thread.fast_update.connect(self.on_fast_update)
-        self.data_thread.medium_update.connect(self.on_medium_update)
-        self.data_thread.slow_update.connect(self.on_slow_update)
-        self.data_thread.gpu_update.connect(self.on_gpu_update)
-        self.data_thread.start()
-
-    def create_section(self, title, color):
-        section = QFrame()
-        section.setObjectName("SectionFrame")
-        section.setStyleSheet(f"""
+class CollapsibleSection(QFrame):
+    """Katlanabilir bölüm widget'ı - yeniden kullanılabilir"""
+    
+    def __init__(self, title: str, color: str, parent=None):
+        super().__init__(parent)
+        self.color = color
+        self.is_expanded = True
+        self._setup_ui(title)
+    
+    def _setup_ui(self, title: str):
+        self.setObjectName("SectionFrame")
+        self.setStyleSheet(f"""
             QFrame#SectionFrame {{
                 background-color: rgba(30, 30, 46, 120);
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 border-radius: 16px;
             }}
             QLabel#SectionTitle {{
-                color: {color};
-                font-size: 10px;
+                color: {self.color};
+                font-size: 9px;
                 font-weight: 800;
                 text-transform: uppercase;
-                letter-spacing: 2px;
-                padding: 8px 0px 4px 0px;
+                letter-spacing: 1.5px;
             }}
         """)
         
-        layout = QVBoxLayout(section)
-        layout.setContentsMargins(15, 8, 15, 15)
-        layout.setSpacing(12)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 4, 15, 12)
+        layout.setSpacing(0)
+        self.setMinimumHeight(0)
         
+        # Header
+        self._create_header(title, layout)
+        
+        # Content container
+        self.content = QWidget()
+        self.content.setMinimumHeight(0)
+        self.grid = QGridLayout(self.content)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(12)
+        layout.addWidget(self.content)
+    
+    def _create_header(self, title: str, parent_layout: QVBoxLayout):
+        """Header bileşenini oluştur"""
+        header = QWidget()
+        header.setMaximumHeight(32)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 6)
+        
+        # Hizalama için boşluk
+        header_layout.addWidget(self._create_spacer())
+        header_layout.addStretch()
+        
+        # Başlık
         title_lbl = QLabel(title)
         title_lbl.setObjectName("SectionTitle")
         title_lbl.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_lbl)
+        title_lbl.setMaximumHeight(20)
+        header_layout.addWidget(title_lbl)
         
-        grid = QGridLayout()
-        grid.setSpacing(12)
-        layout.addLayout(grid)
+        header_layout.addStretch()
         
-        return section, grid
+        # Toggle butonu
+        self.toggle_btn = self._create_toggle_button()
+        header_layout.addWidget(self.toggle_btn)
+        
+        parent_layout.addWidget(header)
+    
+    def _create_spacer(self) -> QWidget:
+        """Hizalama için dummy spacer"""
+        spacer = QWidget()
+        spacer.setFixedSize(20, 20)
+        return spacer
+    
+    def _create_toggle_button(self) -> QPushButton:
+        """Toggle butonunu oluştur"""
+        btn = QPushButton("▼")
+        btn.setFixedSize(20, 20)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                color: {self.color};
+                background: transparent;
+                border: none;
+                font-size: 11px;
+                font-weight: bold;
+                padding: 0px;
+            }}
+            QPushButton:hover {{
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 10px;
+            }}
+        """)
+        btn.clicked.connect(self.toggle)
+        return btn
+    
+    def toggle(self):
+        """Bölümü aç/kapat"""
+        window = self.window()
+        if window:
+            window.setUpdatesEnabled(False)
+        
+        self.is_expanded = not self.is_expanded
+        
+        if self.is_expanded:
+            self.content.setMaximumHeight(16777215)
+            self.toggle_btn.setText("▼")
+        else:
+            self.content.setMaximumHeight(0)
+            self.toggle_btn.setText("▶")
+        
+        # Layout'u zorla güncelle
+        self.adjustSize()
+        self.updateGeometry()
+        
+        if window:
+            window.setUpdatesEnabled(True)
+            # Parent widget'tan resize tetikle - daha uzun delay
+            if hasattr(self.parent(), 'update_window_size'):
+                QTimer.singleShot(10, self.parent().update_window_size)
+    
+    def add_widget(self, widget: QWidget, row: int, col: int):
+        """Grid'e widget ekle"""
+        self.grid.addWidget(widget, row, col)
 
-    def init_ui(self):
+
+class DashboardPage(QWidget):
+    """Ana dashboard sayfası"""
+    
+    # Statistic key mappings
+    STAT_KEYS = [
+        'cpu', 'ram', 'gpu', 'vram', 'gpu_temp', 'gpu_power',
+        'gpu_fan', 'gpu_clock', 'disk', 'net_down', 'net_up',
+        'processes', 'uptime', 'cpu_cores', 'ram_speed'
+    ]
+    
+    # GPU normalization constants
+    GPU_POWER_MAX = 300  # Watt
+    GPU_CLOCK_MAX = 2500  # MHz
+    
+    def __init__(self):
+        super().__init__()
+        
+        # Services
+        self.gpu_monitor = GPUMonitor()
+        self.sys_monitor = SystemMonitor()
+        self.settings = get_settings()
+        self.gpu_updater = GPUDriverUpdater()
+        
+        # Storage
+        self.cards: Dict[str, StatCard] = {}
+        self.sections: Dict[str, CollapsibleSection] = {}
+        self.data_thread: Optional[DataCollectorThread] = None
+        
+        self._init_ui()
+        self._start_monitoring()
+        self._check_driver_updates()
+    
+    def _init_ui(self):
+        """UI bileşenlerini başlat"""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 15, 20, 20)
         main_layout.setSpacing(15)
         
-        # Header moved to main window top bar
-
-        # Create Cards - store them in cards dict
-        self.card_cpu = StatCard("CPU Usage", "#f38ba8")
-        self.cards['cpu'] = self.card_cpu
-        
-        self.card_ram = StatCard("RAM Usage", "#fab387")
-        self.cards['ram'] = self.card_ram
-        
-        self.card_gpu = StatCard("GPU Usage", "#a6e3a1")
-        self.cards['gpu'] = self.card_gpu
-        
-        self.card_vram = StatCard("VRAM Usage", "#89b4fa")
-        self.cards['vram'] = self.card_vram
-        
-        self.card_gpu_temp = StatCard("GPU Temp", "#eba0ac")
-        self.cards['gpu_temp'] = self.card_gpu_temp
-        
-        self.card_gpu_power = StatCard("GPU Power", "#f9e2af")
-        self.cards['gpu_power'] = self.card_gpu_power
-        
-        self.card_gpu_fan = StatCard("GPU Fan", "#94e2d5")
-        self.cards['gpu_fan'] = self.card_gpu_fan
-        
-        self.card_gpu_clock = StatCard("GPU Clock", "#cba6f7")
-        self.cards['gpu_clock'] = self.card_gpu_clock
-
-        self.card_disk = StatCard("Disk Usage", "#f5c2e7")
-        self.cards['disk'] = self.card_disk
-        
-        self.card_net_down = StatCard("Net Down", "#74c7ec")
-        self.cards['net_down'] = self.card_net_down
-        
-        self.card_net_up = StatCard("Net Up", "#b4befe")
-        self.cards['net_up'] = self.card_net_up
-        
-        self.card_processes = StatCard("Processes", "#f2cdcd")
-        self.cards['processes'] = self.card_processes
-        
-        self.card_uptime = StatCard("Uptime", "#f5e0dc")
-        self.cards['uptime'] = self.card_uptime
-        
-        self.card_cores = StatCard("CPU Cores", "#a6e3a1")
-        self.cards['cpu_cores'] = self.card_cores
-        
-        self.card_ram_speed = StatCard("RAM Speed", "#f9e2af")
-        self.cards['ram_speed'] = self.card_ram_speed
-
-        # Top Horizontal Layout for main groups
-        top_groups = QHBoxLayout()
-        top_groups.setSpacing(12)
-        main_layout.addLayout(top_groups)
-
-        # 1. CPU Group
-        cpu_section, cpu_grid = self.create_section("Processor", "#f38ba8")
-        self.sections['cpu'] = cpu_section
-        cpu_grid.addWidget(self.card_cpu, 0, 0)
-        cpu_grid.addWidget(self.card_cores, 0, 1)
-        cpu_grid.addWidget(self.card_ram, 1, 0)
-        cpu_grid.addWidget(self.card_ram_speed, 1, 1)
-        cpu_grid.addWidget(self.card_processes, 2, 0)
-        cpu_grid.addWidget(self.card_uptime, 2, 1)
-        top_groups.addWidget(cpu_section)
-
-        # 2. GPU Group
-        gpu_section, gpu_grid = self.create_section("Graphics", "#a6e3a1")
-        self.sections['gpu'] = gpu_section
-        gpu_grid.addWidget(self.card_gpu, 0, 0)
-        gpu_grid.addWidget(self.card_vram, 0, 1)
-        gpu_grid.addWidget(self.card_gpu_temp, 1, 0)
-        gpu_grid.addWidget(self.card_gpu_power, 1, 1)
-        gpu_grid.addWidget(self.card_gpu_fan, 2, 0)
-        gpu_grid.addWidget(self.card_gpu_clock, 2, 1)
-        top_groups.addWidget(gpu_section)
-
-        # 3. Bottom Group (Network & Disk)
-        io_section, io_grid = self.create_section("System & Network", "#89b4fa")
-        self.sections['system'] = io_section
-        io_grid.addWidget(self.card_disk, 0, 0)
-        io_grid.addWidget(self.card_net_down, 0, 1)
-        io_grid.addWidget(self.card_net_up, 0, 2)
-        main_layout.addWidget(io_section)
-
-        main_layout.addStretch()
-        
-        # Initialize static data
-        cpu = self.sys_monitor.get_cpu_stats()
-        self.card_cores.update_value(f"{len(cpu['per_core'])} Cores", 100)
-        
-        # Apply visibility settings
+        self._create_cards()
+        self._create_sections(main_layout)
+        self._initialize_static_data()
         self.refresh_visibility()
-
-    @Slot(dict)
-    def on_fast_update(self, data):
-        """Handle fast updates (CPU, RAM, Network) from background thread."""
-        # CPU
-        if 'cpu_usage' in data and self.settings.is_statistic_enabled('cpu'):
-            self.card_cpu.update_value(f"{data['cpu_usage']:.0f}%", int(data['cpu_usage']))
+    
+    def _create_cards(self):
+        """Tüm stat kartlarını oluştur"""
+        card_configs = [
+            ('cpu', 'CPU Usage', '#f38ba8'),
+            ('ram', 'RAM Usage', '#fab387'),
+            ('gpu', 'GPU Usage', '#a6e3a1'),
+            ('vram', 'VRAM Usage', '#89b4fa'),
+            ('gpu_temp', 'GPU Temp', '#eba0ac'),
+            ('gpu_power', 'GPU Power', '#f9e2af'),
+            ('gpu_fan', 'GPU Fan', '#94e2d5'),
+            ('gpu_clock', 'GPU Clock', '#cba6f7'),
+            ('disk', 'Disk Usage', '#f5c2e7'),
+            ('net_down', 'Net Down', '#74c7ec'),
+            ('net_up', 'Net Up', '#b4befe'),
+            ('processes', 'Processes', '#f2cdcd'),
+            ('uptime', 'Uptime', '#f5e0dc'),
+            ('cpu_cores', 'CPU Cores', '#a6e3a1'),
+            ('ram_speed', 'RAM Speed', '#f9e2af'),
+        ]
         
-        # RAM
+        for key, title, color in card_configs:
+            self.cards[key] = StatCard(title, color)
+    
+    def _create_sections(self, main_layout: QVBoxLayout):
+        """Tüm bölümleri oluştur ve kartları yerleştir"""
+        # Üst satır - CPU ve GPU
+        top_row = QHBoxLayout()
+        top_row.setSpacing(12)
+        
+        # CPU Section
+        cpu_section = CollapsibleSection("Processor", "#f38ba8", self)
+        self.sections['cpu'] = cpu_section
+        cpu_section.add_widget(self.cards['cpu'], 0, 0)
+        cpu_section.add_widget(self.cards['cpu_cores'], 0, 1)
+        cpu_section.add_widget(self.cards['ram'], 1, 0)
+        cpu_section.add_widget(self.cards['ram_speed'], 1, 1)
+        cpu_section.add_widget(self.cards['processes'], 2, 0)
+        cpu_section.add_widget(self.cards['uptime'], 2, 1)
+        top_row.addWidget(cpu_section)
+        
+        # GPU Section
+        gpu_section = CollapsibleSection("Graphics", "#a6e3a1", self)
+        self.sections['gpu'] = gpu_section
+        gpu_section.add_widget(self.cards['gpu'], 0, 0)
+        gpu_section.add_widget(self.cards['vram'], 0, 1)
+        gpu_section.add_widget(self.cards['gpu_temp'], 1, 0)
+        gpu_section.add_widget(self.cards['gpu_power'], 1, 1)
+        gpu_section.add_widget(self.cards['gpu_fan'], 2, 0)
+        gpu_section.add_widget(self.cards['gpu_clock'], 2, 1)
+        top_row.addWidget(gpu_section)
+        
+        main_layout.addLayout(top_row)
+        
+        # System & Network Section
+        io_section = CollapsibleSection("System & Network", "#89b4fa", self)
+        self.sections['system'] = io_section
+        io_section.add_widget(self.cards['disk'], 0, 0)
+        io_section.add_widget(self.cards['net_down'], 0, 1)
+        io_section.add_widget(self.cards['net_up'], 0, 2)
+        main_layout.addWidget(io_section)
+        
+        # Driver Section
+        driver_section = CollapsibleSection("Driver", "#f9e2af", self)
+        self.sections['driver'] = driver_section
+        self.card_gpu_update = GPUUpdateCard()
+        self.card_gpu_update.check_clicked.connect(self._on_gpu_update_check_clicked)
+        driver_section.add_widget(self.card_gpu_update, 0, 0)
+        main_layout.addWidget(driver_section)
+    
+    def _initialize_static_data(self):
+        """Statik verileri başlat"""
+        cpu = self.sys_monitor.get_cpu_stats()
+        self.cards['cpu_cores'].update_value(f"{len(cpu['per_core'])} Cores", 100)
+    
+    def _start_monitoring(self):
+        """Arka plan izleme thread'ini başlat"""
+        self.data_thread = DataCollectorThread()
+        self.data_thread.fast_update.connect(self._on_fast_update)
+        self.data_thread.medium_update.connect(self._on_medium_update)
+        self.data_thread.slow_update.connect(self._on_slow_update)
+        self.data_thread.gpu_update.connect(self._on_gpu_update)
+        self.data_thread.start()
+    
+    def _check_driver_updates(self):
+        """GPU sürücü güncellemelerini kontrol et"""
+        if self.settings.get_setting("gpu_updates.check_enabled", True):
+            self.gpu_updater.check_for_updates_async(self._on_driver_update_check)
+    
+    @Slot(dict)
+    def _on_fast_update(self, data: dict):
+        """Hızlı güncellemeleri işle (CPU, RAM, Network)"""
+        self._update_card_if_enabled('cpu', data, 'cpu_usage', 
+                                     lambda v: (f"{v:.0f}%", int(v)))
+        
         if 'ram_percent' in data and self.settings.is_statistic_enabled('ram'):
             ram_text = f"{data['ram_used']:.1f} / {data['ram_total']:.1f} GB"
-            self.card_ram.update_value(f"{data['ram_percent']:.0f}%", int(data['ram_percent']), ram_text)
-        
-        # RAM Speed
-        if 'ram_speed' in data and self.settings.is_statistic_enabled('ram_speed'):
-            self.card_ram_speed.update_value(data['ram_speed'], 100)
-        
-        # Network
-        if 'net_down_speed' in data and self.settings.is_statistic_enabled('net_down'):
-            self.card_net_down.update_value(
-                f"{data['net_down_speed']:.1f} MB/s", 
-                min(100, int(data['net_down_speed'] * 10))
+            self.cards['ram'].update_value(
+                f"{data['ram_percent']:.0f}%", 
+                int(data['ram_percent']), 
+                ram_text
             )
         
-        if 'net_up_speed' in data and self.settings.is_statistic_enabled('net_up'):
-            self.card_net_up.update_value(
-                f"{data['net_up_speed']:.1f} MB/s", 
-                min(100, int(data['net_up_speed'] * 10))
-            )
-    
-    @Slot(dict)
-    def on_medium_update(self, data):
-        """Handle medium updates (Processes) from background thread."""
-        if 'process_count' in data and self.settings.is_statistic_enabled('processes'):
-            proc_count = data['process_count']
-            self.card_processes.update_value(f"{proc_count}", min(100, int(proc_count / 5)))
-    
-    @Slot(dict)
-    def on_slow_update(self, data):
-        """Handle slow updates (Disk, Uptime) from background thread."""
-        # Disk
-        if 'disk_percent' in data and self.settings.is_statistic_enabled('disk'):
-            self.card_disk.update_value(f"{data['disk_percent']:.0f}%", int(data['disk_percent']))
+        self._update_card_if_enabled('ram_speed', data, 'ram_speed',
+                                     lambda v: (v, 100))
         
-        # Uptime
+        self._update_card_if_enabled('net_down', data, 'net_down_speed',
+                                     lambda v: (f"{v:.1f} MB/s", min(100, int(v * 10))))
+        
+        self._update_card_if_enabled('net_up', data, 'net_up_speed',
+                                     lambda v: (f"{v:.1f} MB/s", min(100, int(v * 10))))
+    
+    @Slot(dict)
+    def _on_medium_update(self, data: dict):
+        """Orta hız güncellemeleri işle (Processes)"""
+        self._update_card_if_enabled('processes', data, 'process_count',
+                                     lambda v: (f"{v}", min(100, int(v / 5))))
+    
+    @Slot(dict)
+    def _on_slow_update(self, data: dict):
+        """Yavaş güncellemeleri işle (Disk, Uptime)"""
+        self._update_card_if_enabled('disk', data, 'disk_percent',
+                                     lambda v: (f"{v:.0f}%", int(v)))
+        
         if 'uptime_hours' in data and self.settings.is_statistic_enabled('uptime'):
-            self.card_uptime.update_value(
-                f"{data['uptime_hours']}h {data['uptime_minutes']}m", 
+            self.cards['uptime'].update_value(
+                f"{data['uptime_hours']}h {data['uptime_minutes']}m",
                 100
             )
     
     @Slot(dict)
-    def on_gpu_update(self, data):
-        """Handle GPU updates from background thread."""
-        if data['available']:
-            if 'gpu_usage' in data and self.settings.is_statistic_enabled('gpu'):
-                self.card_gpu.update_value(f"{data['gpu_usage']}%", data['gpu_usage'])
-            
-            if 'vram_percent' in data and self.settings.is_statistic_enabled('vram'):
-                vram_text = f"{data['vram_used']} / {data['vram_total']} GB"
-                self.card_vram.update_value(f"{data['vram_percent']:.0f}%", int(data['vram_percent']), vram_text)
-            
-            if 'temp' in data and self.settings.is_statistic_enabled('gpu_temp'):
-                self.card_gpu_temp.update_value(f"{data['temp']}°C", data['temp'])
-            
-            if 'power_draw' in data and self.settings.is_statistic_enabled('gpu_power'):
-                self.card_gpu_power.update_value(
-                    f"{data['power_draw']} W", 
-                    int(data['power_draw'] / 300 * 100)  # Normalized to 300W
-                )
-            
-            if 'fan_speed' in data and self.settings.is_statistic_enabled('gpu_fan'):
-                self.card_gpu_fan.update_value(f"{data['fan_speed']}%", data['fan_speed'])
-            
-            if 'core_clock' in data and self.settings.is_statistic_enabled('gpu_clock'):
-                self.card_gpu_clock.update_value(
-                    f"{data['core_clock']} MHz", 
-                    int(data['core_clock'] / 2500 * 100)  # Normalized to 2500MHz
-                )
-        else:
-            # GPU not available - set all to N/A
-            for card in [self.card_gpu, self.card_vram, self.card_gpu_temp, 
-                        self.card_gpu_power, self.card_gpu_fan, self.card_gpu_clock]:
-                card.update_value("N/A", 0)
-    
-    def refresh_visibility(self):
-        """Refresh card visibility based on settings."""
-        # Card settings mapping
-        stat_keys = [
-            'cpu', 'ram', 'gpu', 'vram', 'gpu_temp', 'gpu_power', 
-            'gpu_fan', 'gpu_clock', 'disk', 'net_down', 'net_up', 
-            'processes', 'uptime', 'cpu_cores', 'ram_speed'
+    def _on_gpu_update(self, data: dict):
+        """GPU güncellemelerini işle"""
+        if not data.get('available'):
+            self._set_gpu_unavailable()
+            return
+        
+        gpu_updates = [
+            ('gpu', 'gpu_usage', lambda v: (f"{v}%", v)),
+            ('gpu_temp', 'temp', lambda v: (f"{v}°C", v)),
+            ('gpu_fan', 'fan_speed', lambda v: (f"{v}%", v)),
+            ('gpu_power', 'power_draw', 
+             lambda v: (f"{v} W", int(v / self.GPU_POWER_MAX * 100))),
+            ('gpu_clock', 'core_clock',
+             lambda v: (f"{v} MHz", int(v / self.GPU_CLOCK_MAX * 100))),
         ]
         
-        for stat_key in stat_keys:
+        for card_key, data_key, formatter in gpu_updates:
+            self._update_card_if_enabled(card_key, data, data_key, formatter)
+        
+        # VRAM özel durum
+        if 'vram_percent' in data and self.settings.is_statistic_enabled('vram'):
+            vram_text = f"{data['vram_used']} / {data['vram_total']} GB"
+            self.cards['vram'].update_value(
+                f"{data['vram_percent']:.0f}%",
+                int(data['vram_percent']),
+                vram_text
+            )
+    
+    def _update_card_if_enabled(self, card_key: str, data: dict, 
+                                data_key: str, formatter):
+        """Kart etkinse güncelle"""
+        if data_key in data and self.settings.is_statistic_enabled(card_key):
+            value, progress = formatter(data[data_key])
+            self.cards[card_key].update_value(value, progress)
+    
+    def _set_gpu_unavailable(self):
+        """GPU kullanılamadığında tüm GPU kartlarını N/A yap"""
+        gpu_cards = ['gpu', 'vram', 'gpu_temp', 'gpu_power', 'gpu_fan', 'gpu_clock']
+        for card_key in gpu_cards:
+            self.cards[card_key].update_value("N/A", 0)
+    
+    @Slot(bool, object)
+    def _on_driver_update_check(self, update_available: bool, latest_version):
+        """Sürücü güncelleme kontrolü tamamlandığında"""
+        update_info = self.gpu_updater.get_update_info()
+        self.card_gpu_update.update_status(
+            has_update=update_available,
+            vendor=update_info['vendor'],
+            current_version=update_info['current_version'] or 'Unknown',
+            latest_version=latest_version or 'Unknown'
+        )
+    
+    @Slot()
+    def _on_gpu_update_check_clicked(self):
+        """Manuel GPU güncelleme kontrolü"""
+        self.card_gpu_update.set_checking()
+        self.gpu_updater.check_for_updates_async(self._on_driver_update_check)
+    
+    def update_window_size(self):
+        """Pencere boyutunu içeriğe göre ayarla"""
+        window = self.window()
+        if not window:
+            return
+        
+        # Tüm section'ları kontrol et - hepsi kapalıysa minimum yükseklik
+        any_expanded = any(
+            section.is_expanded 
+            for section in self.sections.values() 
+            if isinstance(section, CollapsibleSection)
+        )
+        
+        window.setUpdatesEnabled(False)
+        
+        # Layout'u güncelle
+        self.layout().activate()
+        self.adjustSize()
+        self.updateGeometry()
+        
+        # Yeni boyutu hesapla
+        size_hint = self.sizeHint()
+        new_width = max(900, window.width())
+        
+        # Eğer hiçbir section açık değilse, minimum yükseklik
+        if not any_expanded:
+            # Header yükseklikleri + margin'lar
+            min_height = 150  # Tüm header'lar + padding
+            new_height = min_height
+        else:
+            new_height = size_hint.height()
+        
+        # Resize yap
+        window.resize(new_width, new_height)
+        
+        # Widget'ı da resize et
+        window.setUpdatesEnabled(True)
+        window.update()
+        
+        # Bir kere daha güncelleme (Qt quirk için)
+        QTimer.singleShot(20, lambda: self._final_resize(window, new_width, new_height))
+    
+    def _final_resize(self, window, width: int, height: int):
+        """Final resize - Qt'nin layout hesaplamalarının bitmesini bekle"""
+        if window:
+            window.resize(width, height)
+            window.updateGeometry()
+    
+    def refresh_visibility(self):
+        """Ayarlara göre kart görünürlüğünü yenile"""
+        for stat_key in self.STAT_KEYS:
             if stat_key in self.cards:
                 is_enabled = self.settings.is_statistic_enabled(stat_key)
                 self.cards[stat_key].setVisible(is_enabled)
-                # Also notify data thread to skip this statistic
-                if hasattr(self, 'data_thread'):
+                
+                if self.data_thread:
                     self.data_thread.set_statistic_enabled(stat_key, is_enabled)
         
-        # Force immediate data refresh after visibility update
-        if hasattr(self, 'data_thread'):
+        if self.data_thread:
             self.data_thread.force_refresh_all()
     
     def closeEvent(self, event):
-        """Clean up background thread when closing."""
-        if hasattr(self, 'data_thread'):
+        """Pencere kapatılırken temizlik yap"""
+        if self.data_thread:
             self.data_thread.stop()
             self.data_thread.wait()
         event.accept()
-

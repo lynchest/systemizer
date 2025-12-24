@@ -3,3 +3,4 @@ pynvml
 psutil
 pyadl
 Pillow
+requests

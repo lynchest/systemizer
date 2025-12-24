@@ -27,6 +27,11 @@ class Settings:
         },
         "theme": {
             "background_main": "#0d0d0d",     # Pure Black
+        },
+        "gpu_updates": {
+            "check_enabled": True,
+            "check_interval_hours": 24,
+            "notify_on_update": True,
         }
     }
     
@@ -58,6 +63,7 @@ class Settings:
                     # Merge loaded settings with defaults
                     self.settings["statistics"].update(loaded.get("statistics", {}))
                     self.settings["theme"].update(loaded.get("theme", {}))
+                    self.settings["gpu_updates"].update(loaded.get("gpu_updates", {}))
             else:
                 self._save_settings()
         except Exception as e:
