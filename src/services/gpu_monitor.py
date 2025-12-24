@@ -35,6 +35,8 @@ class GPUMonitor:
                 self._init_nvidia()
             elif self.vendor == "AMD":
                 self._init_amd()
+            elif self.vendor == "Intel":
+                self._init_intel()
             
             # 3. Fallback if vendor specific init failed
             if not self._gpu_available:
@@ -134,6 +136,22 @@ class GPUMonitor:
         # Fallback to generic detection if pyadl fails
         self._init_generic()
 
+    def _init_intel(self):
+        """Initialize Intel GPU monitoring using PowerShell."""
+        try:
+            cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-CimInstance Win32_VideoController -Filter \\"DeviceName LIKE \'%Intel%\'\\" | Select-Object -First 1 Caption, AdapterRAM | ConvertTo-Json"'
+            output = subprocess.check_output(cmd, shell=True, timeout=10).decode('utf-8', errors='ignore').strip()
+            if output:
+                data = json.loads(output)
+                self.gpu_name = data.get("Caption", "Intel Graphics")
+                ram_bytes = data.get("AdapterRAM", 0)
+                if ram_bytes:
+                    self.vram_total = int(ram_bytes) / 1024**2
+                self._gpu_available = True
+        except Exception as e:
+            print(f"Failed to initialize Intel GPU: {e}")
+            self._gpu_available = False
+
     def _init_generic(self):
         """Fallback to PowerShell for basic GPU info."""
         try:
@@ -159,6 +177,8 @@ class GPUMonitor:
             return self._get_nvidia_stats()
         elif self.vendor == "AMD":
             return self._get_amd_stats()
+        elif self.vendor == "Intel":
+            return self._get_intel_stats()
         else:
             return self._get_generic_stats()
 
@@ -229,6 +249,51 @@ class GPUMonitor:
                 pass
         
         return self._get_generic_stats()
+
+    def _get_intel_stats(self):
+        """Get Intel GPU statistics using Windows Performance Monitor and PowerShell."""
+        try:
+            # Intel GPU usage
+            usage_cmd = 'powershell -Command "(Get-Counter \'\\\\GPU Engine(*Intel*)\\\\Utilization Percentage\' -ErrorAction SilentlyContinue).CounterSamples.CookedValue | Measure-Object -Sum | Select-Object -ExpandProperty Sum"'
+            try:
+                usage = float(subprocess.check_output(usage_cmd, shell=True, timeout=5).decode().strip() or 0)
+            except:
+                usage = 0
+            
+            # Try to get temperature from WMI
+            temp = 0
+            try:
+                temp_cmd = 'powershell -Command "Get-CimInstance MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object -First 1 | Select-Object -ExpandProperty CurrentTemperature | ForEach-Object {($_ - 2732) / 10}"'
+                temp_output = subprocess.check_output(temp_cmd, shell=True, timeout=5).decode().strip()
+                if temp_output:
+                    temp = float(temp_output)
+            except:
+                temp = 0
+            
+            # Intel shared GPU memory (Intel VRAM is typically shared system RAM)
+            vram_used = 0
+            vram_cmd = 'powershell -Command "(Get-Counter \'\\\\GPU Adapter Memory(*)\\\\Dedicated Usage\' -ErrorAction SilentlyContinue).CounterSamples.CookedValue | Measure-Object -Sum | Select-Object -ExpandProperty Sum"'
+            try:
+                vram_used_bytes = float(subprocess.check_output(vram_cmd, shell=True, timeout=5).decode().strip() or 0)
+                vram_used = vram_used_bytes / 1024**2  # MB
+            except:
+                vram_used = 0
+            
+            return {
+                "name": self.gpu_name,
+                "gpu_usage": int(usage),
+                "vram_total": self.vram_total,
+                "vram_used": vram_used,
+                "vram_percent": (vram_used / self.vram_total) * 100 if self.vram_total > 0 else 0,
+                "temp": int(temp),
+                "power_draw": 0,
+                "fan_speed": 0,
+                "core_clock": 0,
+                "memory_clock": 0
+            }
+        except Exception as e:
+            print(f"Error getting Intel GPU stats: {e}")
+            return self._get_generic_stats()
 
     def _get_generic_stats(self):
         try:

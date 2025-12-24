@@ -260,10 +260,44 @@ class GPUDriverUpdater:
             return None
     
     def _check_intel_updates(self) -> Optional[str]:
-        """Check Intel's driver version."""
+        """Check Intel GPU driver version from Intel's download center or Windows Update."""
         try:
-            # Intel drivers are harder to check without their API
-            # This is a placeholder
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            # Try to check Intel's driver page for latest version
+            # Intel typically provides drivers through Windows Update or Intel Download Center
+            response = requests.get(
+                "https://www.intel.com/content/www/us/en/support/intel-graphics.html",
+                timeout=10,
+                headers=headers
+            )
+            
+            if response.status_code == 200:
+                import re
+                # Look for version patterns in the HTML
+                # Intel driver versions are typically in format like "31.0.101.5034" or "27.20.100.9316"
+                pattern = r'(\d+\.\d+\.\d+\.\d+)'
+                matches = re.findall(pattern, response.text)
+                
+                if matches:
+                    # Return the first match (usually latest)
+                    # Filter out dates and other numbers
+                    for match in matches:
+                        parts = match.split('.')
+                        if len(parts) == 4 and int(parts[0]) < 100:  # Intel drivers typically have first digit < 100
+                            return match
+            
+            # Fallback: Try to get from Windows Device Manager via WMI
+            cmd = 'powershell -NoProfile -Command "Get-CimInstance Win32_PnPSignedDriver -Filter \\"DeviceName LIKE \'%Intel%Graphics%\'\\" | Select-Object -First 1 DriverVersion"'
+            try:
+                output = subprocess.check_output(cmd, shell=True, timeout=5).decode().strip()
+                if output and 'DriverVersion' not in output:
+                    return output
+            except:
+                pass
+            
             return None
         except Exception as e:
             logger.debug(f"Failed to check Intel updates: {e}")

@@ -46,6 +46,7 @@ class DataCollectorThread(QThread):
     def set_statistic_enabled(self, stat_key: str, enabled: bool):
         """Enable or disable a specific statistic."""
         self.enabled_stats[stat_key] = enabled
+        print(f"[DataCollector] {stat_key} -> {enabled}")  # Debug için
     
     def force_refresh_all(self):
         """Force immediate refresh of all data."""
@@ -112,8 +113,12 @@ class DataCollectorThread(QThread):
         
         # Network stats
         net = self.sys_monitor.get_network_stats()
-        down_speed = (net['bytes_recv'] - self.last_net_recv) / 1024 / 1024  # MB/s
-        up_speed = (net['bytes_sent'] - self.last_net_sent) / 1024 / 1024  # MB/s
+        down_bytes = net['bytes_recv'] - self.last_net_recv
+        up_bytes = net['bytes_sent'] - self.last_net_sent
+        
+        # Convert to KB/s for better precision
+        down_speed = down_bytes / 1024  # KB/s
+        up_speed = up_bytes / 1024  # KB/s
         
         # Update last values
         self.last_net_recv = net['bytes_recv']

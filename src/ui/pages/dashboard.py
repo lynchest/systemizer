@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QWidget, QGridLayout, QVBoxLayout, QFrame, QLabel, QHBoxLayout, QPushButton
-from PySide6.QtCore import Qt, Slot, QTimer, QPropertyAnimation, QEasingCurve, Property
+from PySide6.QtCore import Qt, Slot, QTimer, QPropertyAnimation, QEasingCurve, Property, Signal
 from PySide6.QtGui import QIcon
 from src.ui.widgets.cards import StatCard, GPUUpdateCard
 from src.services.gpu_monitor import GPUMonitor
@@ -12,9 +12,12 @@ from typing import Dict, Tuple, Optional
 class CollapsibleSection(QFrame):
     """Katlanabilir bölüm widget'ı - yeniden kullanılabilir"""
     
-    def __init__(self, title: str, color: str, parent=None):
+    section_toggled = Signal(str, bool)  # section_name, is_expanded
+    
+    def __init__(self, title: str, color: str, section_name: str = "", parent=None):
         super().__init__(parent)
         self.color = color
+        self.section_name = section_name
         self.is_expanded = True
         self._setup_ui(title)
     
@@ -120,6 +123,9 @@ class CollapsibleSection(QFrame):
             self.content.setMaximumHeight(0)
             self.toggle_btn.setText("▶")
         
+        # Bölüm durumu değiştiğinde sinyal gönder
+        self.section_toggled.emit(self.section_name, self.is_expanded)
+        
         # Layout'u zorla güncelle
         self.adjustSize()
         self.updateGeometry()
@@ -208,8 +214,9 @@ class DashboardPage(QWidget):
         top_row.setSpacing(12)
         
         # CPU Section
-        cpu_section = CollapsibleSection("Processor", "#f38ba8", self)
+        cpu_section = CollapsibleSection("Processor", "#f38ba8", "cpu", self)
         self.sections['cpu'] = cpu_section
+        cpu_section.section_toggled.connect(self._on_section_toggled)
         cpu_section.add_widget(self.cards['cpu'], 0, 0)
         cpu_section.add_widget(self.cards['cpu_cores'], 0, 1)
         cpu_section.add_widget(self.cards['ram'], 1, 0)
@@ -219,8 +226,9 @@ class DashboardPage(QWidget):
         top_row.addWidget(cpu_section)
         
         # GPU Section
-        gpu_section = CollapsibleSection("Graphics", "#a6e3a1", self)
+        gpu_section = CollapsibleSection("Graphics", "#a6e3a1", "gpu", self)
         self.sections['gpu'] = gpu_section
+        gpu_section.section_toggled.connect(self._on_section_toggled)
         gpu_section.add_widget(self.cards['gpu'], 0, 0)
         gpu_section.add_widget(self.cards['vram'], 0, 1)
         gpu_section.add_widget(self.cards['gpu_temp'], 1, 0)
@@ -232,16 +240,18 @@ class DashboardPage(QWidget):
         main_layout.addLayout(top_row)
         
         # System & Network Section
-        io_section = CollapsibleSection("System & Network", "#89b4fa", self)
+        io_section = CollapsibleSection("System & Network", "#89b4fa", "system", self)
         self.sections['system'] = io_section
+        io_section.section_toggled.connect(self._on_section_toggled)
         io_section.add_widget(self.cards['disk'], 0, 0)
         io_section.add_widget(self.cards['net_down'], 0, 1)
         io_section.add_widget(self.cards['net_up'], 0, 2)
         main_layout.addWidget(io_section)
         
         # Driver Section
-        driver_section = CollapsibleSection("Driver", "#f9e2af", self)
+        driver_section = CollapsibleSection("Driver", "#f9e2af", "driver", self)
         self.sections['driver'] = driver_section
+        driver_section.section_toggled.connect(self._on_section_toggled)
         self.card_gpu_update = GPUUpdateCard()
         self.card_gpu_update.check_clicked.connect(self._on_gpu_update_check_clicked)
         driver_section.add_widget(self.card_gpu_update, 0, 0)
@@ -284,10 +294,10 @@ class DashboardPage(QWidget):
                                      lambda v: (v, 100))
         
         self._update_card_if_enabled('net_down', data, 'net_down_speed',
-                                     lambda v: (f"{v:.1f} MB/s", min(100, int(v * 10))))
+                                     lambda v: self._format_network_speed(v))
         
         self._update_card_if_enabled('net_up', data, 'net_up_speed',
-                                     lambda v: (f"{v:.1f} MB/s", min(100, int(v * 10))))
+                                     lambda v: self._format_network_speed(v))
     
     @Slot(dict)
     def _on_medium_update(self, data: dict):
@@ -342,6 +352,18 @@ class DashboardPage(QWidget):
         if data_key in data and self.settings.is_statistic_enabled(card_key):
             value, progress = formatter(data[data_key])
             self.cards[card_key].update_value(value, progress)
+    
+    def _format_network_speed(self, speed_kb: float) -> Tuple[str, int]:
+        """Network hızını uygun birimde göster (KB/s veya MB/s)"""
+        if speed_kb < 1024:
+            # Show as KB/s for small values
+            return (f"{speed_kb:.1f} KB/s", min(100, int(speed_kb / 10)))
+        else:
+            # Show as MB/s for larger values
+            speed_mb = speed_kb / 1024
+            # Progress bar: assume 100MB/s is 100%
+            progress = min(100, int(speed_mb * 10))
+            return (f"{speed_mb:.1f} MB/s", progress)
     
     def _set_gpu_unavailable(self):
         """GPU kullanılamadığında tüm GPU kartlarını N/A yap"""
@@ -414,6 +436,32 @@ class DashboardPage(QWidget):
             window.resize(width, height)
             window.updateGeometry()
     
+    @Slot(str, bool)
+    def _on_section_toggled(self, section_name: str, is_expanded: bool):
+        """Bölüm açılıp kapatıldığında veri toplamayı kontrol et"""
+        if not self.data_thread:
+            return
+        
+        # Bölüm adlarına göre statistic key'lerini eşleştir
+        section_to_stats = {
+            'cpu': ['cpu', 'cpu_cores', 'ram', 'ram_speed', 'processes', 'uptime'],
+            'gpu': ['gpu', 'vram', 'gpu_temp', 'gpu_power', 'gpu_fan', 'gpu_clock'],
+            'system': ['disk', 'net_down', 'net_up'],
+            'driver': []  # Driver bölümü veri toplama gerektirmez
+        }
+        
+        # İlgili statistic'leri etkinleştir/devre dışı bırak
+        stats_for_section = section_to_stats.get(section_name, [])
+        for stat_key in stats_for_section:
+            # Bölüm açıksa ve ayarlarda etkinse, veri toplama etkin
+            # Bölüm kapalıysa, veri toplama devre dışı
+            should_enable = is_expanded and self.settings.is_statistic_enabled(stat_key)
+            self.data_thread.set_statistic_enabled(stat_key, should_enable)
+        
+        # Veri ihtiyaç varsa yenile
+        if is_expanded:
+            self.data_thread.force_refresh_all()
+    
     def refresh_visibility(self):
         """Ayarlara göre kart görünürlüğünü yenile"""
         for stat_key in self.STAT_KEYS:
@@ -422,6 +470,7 @@ class DashboardPage(QWidget):
                 self.cards[stat_key].setVisible(is_enabled)
                 
                 if self.data_thread:
+                    # Eğer bölüm açıksa statistic'i etkinleştir
                     self.data_thread.set_statistic_enabled(stat_key, is_enabled)
         
         if self.data_thread:
