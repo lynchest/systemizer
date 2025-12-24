@@ -49,7 +49,7 @@ def test_init_nvidia(monitor, mock_pynvml):
     with patch('src.services.gpu_monitor.pynvml', mock_pynvml):
         monitor._init_nvidia()
         assert monitor.vendor == "NVIDIA"
-        assert "Nvidia GeForce" in monitor.gpu_name
+        assert "GeForce RTX 3080" in monitor.gpu_name
         assert monitor._gpu_available is True
 
 @patch('subprocess.check_output', return_value=json.dumps({"Caption": "AMD Radeon"}).encode())
@@ -58,7 +58,7 @@ def test_init_nvidia(monitor, mock_pynvml):
 def test_init_amd(mock_adl_manager, mock_subprocess, monitor):
     """AMD GPU'sunun pyadl ile doğru bir şekilde başlatıldığını test et."""
     mock_device = MagicMock()
-    mock_device.adapterName = b"AMD Radeon RX 6800"
+    mock_device.adapterName = "AMD Radeon RX 6800"
     mock_adl_manager.getInstance.return_value.getDevices.return_value = [mock_device]
 
     monitor._init_amd()

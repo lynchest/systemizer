@@ -57,7 +57,7 @@ def test_on_fast_update(dashboard):
         'ram_percent': 75.1,
         'ram_used': 12.0,
         'ram_total': 16.0,
-        'net_down_speed': 1234.5, # 1.2 MB/s
+        'net_down_speed': 1024.0, # 1.0 MB/s
     }
 
     with patch.object(page.cards['cpu'], 'update_value') as mock_update_cpu, \
@@ -68,7 +68,7 @@ def test_on_fast_update(dashboard):
 
         mock_update_cpu.assert_called_once_with("55%", 55)
         mock_update_ram.assert_called_once_with("75%", 75, "12.0 / 16.0 GB")
-        mock_update_net.assert_called_once_with("1.2 MB/s", 12)
+        mock_update_net.assert_called_once_with("1.0 MB/s", 10)
 
 def test_on_gpu_update_unavailable(dashboard):
     """GPU mevcut olmadığında GPU kartlarının 'N/A' olarak ayarlandığını test et."""

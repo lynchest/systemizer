@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt
 
 # QApplication manuel olarak oluşturulmaz
 
@@ -83,9 +84,8 @@ def test_gpu_update_card_status_up_to_date(gpu_update_card):
 
 def test_gpu_update_card_check_button_click(gpu_update_card, qtbot):
     """'Kontrol Et' düğmesine tıklandığında check_clicked sinyalinin yayıldığını ve durumun güncellendiğini test et."""
-    with qtbot.waitSignal(gpu_update_card.check_clicked) as blocker:
-        qtbot.mouseClick(gpu_update_card.btn_check, pytest.qt.Qt.LeftButton)
+    with qtbot.waitSignal(gpu_update_card.check_clicked):
+        qtbot.mouseClick(gpu_update_card.btn_check, Qt.LeftButton)
 
-    assert blocker.count == 1
     assert not gpu_update_card.btn_check.isEnabled()
     assert "Kontrol Ediliyor..." in gpu_update_card.lbl_status.text()

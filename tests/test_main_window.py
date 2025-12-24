@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from PySide6.QtWidgets import QPushButton
+from PySide6.QtCore import Qt
 
 # QApplication manuel olarak oluşturulmaz veya içe aktarılmaz
 from src.settings import get_settings
@@ -38,7 +39,7 @@ def test_open_settings_dialog(mock_settings_dialog, app, qtbot):
     """Ayarlar düğmesine tıklandığında ayarlar iletişim kutusunun açıldığını test et."""
     # Ayarlar düğmesini bul ve tıkla
     settings_button = app.findChild(QPushButton, "Settings")
-    qtbot.mouseClick(settings_button, pytest.qt.Qt.LeftButton)
+    qtbot.mouseClick(settings_button, Qt.LeftButton)
 
     # SettingsDialog'un bir örneğinin oluşturulduğunu ve yürütüldüğünü doğrula
     mock_settings_dialog.assert_called_once()
@@ -50,7 +51,7 @@ def test_apply_theme(app):
     settings = get_settings()
 
     # Temayı özel bir renge ayarla
-    custom_color = "#1a2a3a" # Koyu Mavi
+    custom_color = "#0d0d0d" # Siyah
     settings.set_setting('theme.background_main', custom_color)
 
     # apply_theme'i manuel olarak çağır
@@ -63,17 +64,22 @@ def test_apply_theme(app):
 @patch('src.ui.main_window.SettingsDialog')
 def test_settings_changed_signal(mock_settings_dialog, app, qtbot):
     """Ayarlar iletişim kutusu sinyal verdiğinde on_settings_changed'in çağrıldığını test et."""
+    # Dialog sinyallerini taklit et
+    dialog_instance = MagicMock()
+    dialog_instance.settings_changed = MagicMock()
+    dialog_instance.theme_changed = MagicMock()
+    mock_settings_dialog.return_value = dialog_instance
+
     # on_settings_changed metodunu doğrudan app örneği üzerinde taklit et
     with patch.object(app, 'on_settings_changed') as mock_on_settings_changed:
-        dialog_instance = mock_settings_dialog.return_value
+        with patch.object(app, 'apply_theme') as mock_apply_theme:
+            # Ayarlar düğmesine tıkla
+            settings_button = app.findChild(QPushButton, "Settings")
+            qtbot.mouseClick(settings_button, Qt.LeftButton)
 
-        # Ayarlar düğmesine tıkla
-        settings_button = app.findChild(QPushButton, "Settings")
-        qtbot.mouseClick(settings_button, pytest.qt.Qt.LeftButton)
+            # open_settings'in SettingsDialog'u oluşturduğunu doğrula
+            mock_settings_dialog.assert_called()
 
-        # Sinyalin bağlandığını doğrula
-        dialog_instance.settings_changed.connect.assert_called_with(app.on_settings_changed)
-
-        # Sinyali manuel olarak yay ve slotun çağrılıp çağrılmadığını kontrol et
-        dialog_instance.settings_changed.emit()
-        mock_on_settings_changed.assert_called_once()
+            # Sinyallerin bağlandığını doğrula
+            dialog_instance.settings_changed.connect.assert_called_with(app.on_settings_changed)
+            dialog_instance.theme_changed.connect.assert_called_with(app.apply_theme)

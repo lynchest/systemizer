@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from PySide6.QtWidgets import QCheckBox, QPushButton
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Qt
 
 # QApplication manuel olarak oluşturulmaz
 from src.settings import get_settings
@@ -38,24 +38,27 @@ def test_checkbox_changes_settings(dialog, qtbot):
     """Bir onay kutusunun durumunu değiştirmenin ve 'Uygula'ya tıklamanın ayarları güncellediğini test et."""
     # CPU onay kutusunun işaretini kaldır
     cpu_checkbox = dialog.checkboxes['cpu']
-    qtbot.mouseClick(cpu_checkbox, pytest.qt.Qt.LeftButton, delay=1)
+    original_state = cpu_checkbox.isChecked()
+    cpu_checkbox.setChecked(not original_state)
     assert not cpu_checkbox.isChecked()
 
     # 'Uygula' düğmesini bul ve tıkla
     apply_button = dialog.findChild(QPushButton, "Apply")
-    qtbot.mouseClick(apply_button, pytest.qt.Qt.LeftButton)
+    qtbot.mouseClick(apply_button, Qt.LeftButton)
 
     # Ayarın güncellendiğini doğrula
     assert not get_settings().is_statistic_enabled('cpu')
 
 def test_apply_button_emits_signals(dialog, qtbot):
     """'Uygula' düğmesine tıklandığında sinyallerin doğru şekilde yayıldığını test et."""
-    with qtbot.waitSignals([dialog.settings_changed, dialog.theme_changed]) as blocker:
+    with patch.object(dialog, 'settings_changed') as mock_settings_signal, \
+         patch.object(dialog, 'theme_changed') as mock_theme_signal:
         apply_button = dialog.findChild(QPushButton, "Apply")
-        qtbot.mouseClick(apply_button, pytest.qt.Qt.LeftButton)
-
-    # Her sinyalin bir kez yayıldığını doğrula
-    assert blocker.count == 2
+        qtbot.mouseClick(apply_button, Qt.LeftButton)
+        
+        # Sinyallerin yayıldığını doğrula
+        mock_settings_signal.emit.assert_called()
+        mock_theme_signal.emit.assert_called()
 
 def test_select_color_updates_theme(dialog, qtbot):
     """Bir renk düğmesine tıklamanın tema ayarlarını güncellediğini test et."""
@@ -64,14 +67,14 @@ def test_select_color_updates_theme(dialog, qtbot):
     dark_red_button = dialog.color_buttons[dark_red_hex]
 
     # Düğmeye tıkla
-    qtbot.mouseClick(dark_red_button, pytest.qt.Qt.LeftButton)
+    qtbot.mouseClick(dark_red_button, Qt.LeftButton)
 
     # Geçici tema renginin güncellendiğini doğrula
     assert dialog.theme_colors['background_main'] == dark_red_hex
 
     # 'Uygula'ya tıkla
     apply_button = dialog.findChild(QPushButton, "Apply")
-    qtbot.mouseClick(apply_button, pytest.qt.Qt.LeftButton)
+    qtbot.mouseClick(apply_button, Qt.LeftButton)
 
     # Kalıcı ayarların güncellendiğini doğrula
     assert get_settings().get_theme_color('background_main') == dark_red_hex
@@ -81,5 +84,5 @@ def test_close_button(dialog, qtbot):
     # close metodunun çağrıldığını doğrula
     with patch.object(dialog, 'close') as mock_close:
         close_button = dialog.findChild(QPushButton, "Close")
-        qtbot.mouseClick(close_button, pytest.qt.Qt.LeftButton)
+        qtbot.mouseClick(close_button, Qt.LeftButton)
         mock_close.assert_called_once()

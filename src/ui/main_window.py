@@ -13,7 +13,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SYSTEMIZER")
-        self.resize(900, 650) # Initial size, but resizable
+        self.resize(900, 670) # Initial size, but resizable
         self.setMinimumWidth(600) # Keep width fixed-ish or minimum
         
         # Initialize settings
@@ -77,7 +77,7 @@ class MainWindow(QMainWindow):
         settings_btn.setIcon(QIcon(resource_path("assets/gear.svg")))
         settings_btn.setIconSize(QSize(18, 18))
         settings_btn.setToolTip("Settings")
-        settings_btn.setAccessibleName("Settings")
+        settings_btn.setObjectName("Settings")
         settings_btn.setStyleSheet("""
             QPushButton {
                 background-color: rgba(255,255,255,0.10);
