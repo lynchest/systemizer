@@ -111,7 +111,30 @@ Uygulamayı ilk kez çalıştırdığınızda "Windows kişisel bilgisayarınız
 2. **"Yine de çalıştır"** butonuna tıklayın.
 
 ---
+## 🔄 Version Checking
 
+Systemizer has built-in version checking capabilities:
+
+### Features
+- **Automatic Updates Check**: Checks GitHub releases on startup
+- **GPU Driver Updates**: Monitors NVIDIA, AMD, and Intel driver versions
+- **Smart Version Detection**: Automatically extracts version from executable name (e.g., `Systemizer_v1.2.1.exe`)
+
+### Version Sources (in priority order)
+1. **Executable Name** (PyInstaller builds)
+   - Format: `Systemizer_v1.2.1.exe` or `Systemizer-1.2.1.exe`
+   - Regex: `[v\-_](\d+\.\d+\.\d+)`
+
+2. **version.txt File** (development/script mode)
+   - Location: `src/version.txt`
+   - Format: `1.2.1`
+
+### Accessing Version Info
+- **Settings → About Tab**: View current version, latest available version, and check for updates
+- **Manual Check**: Click "Check for Updates" to manually check GitHub releases
+- **Direct Link**: "Open GitHub Releases" button opens download page
+
+---
 ## �📄 License
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 

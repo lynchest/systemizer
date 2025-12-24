@@ -1,6 +1,11 @@
 import json
 import os
+import sys
+import re
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Settings:
@@ -52,7 +57,9 @@ class Settings:
         self.settings_dir = Path.home() / ".systemizer"
         self.settings_file = self.settings_dir / "settings.json"
         self.settings = self.DEFAULT_SETTINGS.copy()
+        self._current_version = None
         self._load_settings()
+        self._load_version()
     
     def _load_settings(self):
         """Load settings from file if it exists."""
@@ -78,6 +85,40 @@ class Settings:
                 json.dump(self.settings, f, indent=2)
         except Exception as e:
             print(f"Error saving settings: {e}")
+    
+    def _load_version(self):
+        """Load application version from executable name or version.txt file."""
+        try:
+            # First, try to get version from executable name
+            # If running as frozen executable (PyInstaller)
+            if getattr(sys, 'frozen', False):
+                executable_name = os.path.basename(sys.executable)
+                # Extract version from names like "Systemizer_v1.2.1.exe" or "Systemizer-1.2.1.exe"
+                match = re.search(r'[v\-_](\d+\.\d+\.\d+)', executable_name)
+                if match:
+                    self._current_version = match.group(1)
+                    logger.info(f"Loaded version from executable name: {self._current_version}")
+                    return
+            
+            # If running as script or version not found in exe name, try version.txt
+            src_dir = Path(__file__).parent
+            version_file = src_dir / "version.txt"
+            
+            if version_file.exists():
+                with open(version_file, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if content:
+                        self._current_version = content
+                        logger.info(f"Loaded application version from version.txt: {self._current_version}")
+                        return
+            
+            # Default version if nothing found
+            self._current_version = "1.0.0"
+            logger.warning(f"Version not found, using default: {self._current_version}")
+            
+        except Exception as e:
+            logger.error(f"Error loading version: {e}")
+            self._current_version = "1.0.0"
     
     def get_setting(self, key: str, default=None):
         """Get a setting value by key (supports dot notation: 'statistics.cpu')."""
@@ -128,6 +169,24 @@ class Settings:
     def get_all_theme_colors(self) -> dict:
         """Get all theme colors."""
         return self.settings.get("theme", self.DEFAULT_SETTINGS["theme"].copy())
+    
+    def get_application_version(self) -> str:
+        """Get the current application version."""
+        return self._current_version
+    
+    def set_application_version(self, version: str):
+        """Set the application version in version.txt file."""
+        try:
+            src_dir = Path(__file__).parent
+            version_file = src_dir / "version.txt"
+            
+            with open(version_file, 'w', encoding='utf-8') as f:
+                f.write(version.strip())
+            
+            self._current_version = version
+            logger.info(f"Application version updated to: {version}")
+        except Exception as e:
+            logger.error(f"Error updating version: {e}")
 
 
 # Global settings instance

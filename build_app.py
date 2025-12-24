@@ -91,12 +91,20 @@ def build_application(version_tag):
         # Dosya ve klasörleri ekle (Runtime erişimi için)
         "--add-data", "assets;assets",
         "--add-data", "src/ui/styles;src/ui/styles",
+        # Gizli importlar (urllib3 ve requests tarafından gerekli)
+        "--hidden-import=email",
+        "--hidden-import=email.mime",
+        "--hidden-import=email.mime.text",
+        "--hidden-import=email.mime.multipart",
+        "--hidden-import=urllib3",
+        "--hidden-import=urllib3.util",
+        "--hidden-import=urllib3.packages",
+        "--hidden-import=requests",
+        "--hidden-import=requests.auth",
+        "--hidden-import=requests.models",
         # Gereksiz modülleri çıkar (Boyut küçültme)
         "--exclude-module", "tkinter",
         "--exclude-module", "unittest",
-        "--exclude-module", "email",
-        "--exclude-module", "http",
-        "--exclude-module", "xml",
         "--exclude-module", "pydoc",
         "--exclude-module", "pdb",
         MAIN_FILE

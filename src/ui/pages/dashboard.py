@@ -272,9 +272,12 @@ class DashboardPage(QWidget):
         self.data_thread.start()
     
     def _check_driver_updates(self):
-        """GPU sürücü güncellemelerini kontrol et"""
+        """GPU sürücü güncellemelerini kontrol et ve uygulamayı kontrol et"""
         if self.settings.get_setting("gpu_updates.check_enabled", True):
             self.gpu_updater.check_for_updates_async(self._on_driver_update_check)
+        
+        # Uygulamayı sürüm kontrolü asenkron olarak kontrol et
+        self.gpu_updater.check_application_version_async(self._on_application_update_check)
     
     @Slot(dict)
     def _on_fast_update(self, data: dict):
@@ -381,6 +384,24 @@ class DashboardPage(QWidget):
             current_version=update_info['current_version'] or 'Unknown',
             latest_version=latest_version or 'Unknown'
         )
+    
+    @Slot(bool, str)
+    def _on_application_update_check(self, update_available: bool, latest_version):
+        """Uygulama güncelleme kontrolü tamamlandığında"""
+        app_update_info = self.gpu_updater.get_application_update_info()
+        
+        if update_available and latest_version:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Application update available: {app_update_info['current_version']} -> {latest_version}")
+            logger.info(f"Download from: {app_update_info['releases_url']}")
+            
+            # Çalışan uygulamaya güncelleme bildirimi gönder
+            # (İsteğe bağlı: UI'da bildirim göster)
+        else:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Application is up to date: {app_update_info['current_version']}")
     
     @Slot()
     def _on_gpu_update_check_clicked(self):

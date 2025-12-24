@@ -5,6 +5,7 @@ import requests
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple, Callable
 import logging
+from src.services.version_checker import VersionChecker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,6 +32,9 @@ class GPUDriverUpdater:
             self.check_interval = timedelta(hours=24)
             self.update_callbacks = []
             self._initialized = True
+            
+            # Initialize version checker for application updates
+            self.version_checker = VersionChecker()
             
             # Initial detection
             self._detect_driver_version()
@@ -345,3 +349,22 @@ class GPUDriverUpdater:
         """Force an immediate update check, ignoring the interval."""
         self.last_check_time = None
         return self.check_for_updates()
+    
+    def check_application_version(self) -> Tuple[bool, Optional[str]]:
+        """Check if application has updates available from GitHub."""
+        return self.version_checker.check_for_updates()
+    
+    def check_application_version_async(self, callback=None):
+        """Check for application updates asynchronously."""
+        self.version_checker.check_for_updates_async(callback)
+    
+    def get_application_update_info(self) -> Dict:
+        """Get application update information."""
+        return self.version_checker.get_update_info()
+    
+    def get_all_update_info(self) -> Dict:
+        """Get both driver and application update information."""
+        return {
+            "driver": self.get_update_info(),
+            "application": self.get_application_update_info()
+        }

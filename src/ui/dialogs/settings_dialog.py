@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                                QCheckBox, QPushButton, QGroupBox, QGridLayout, QScrollArea,
-                               QColorDialog, QWidget)
+                               QColorDialog, QWidget, QTabWidget)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QColor
 from src.settings import get_settings
@@ -50,29 +50,31 @@ class SettingsDialog(QDialog):
         title.setStyleSheet("color: #cdd6f4;")
         layout.addWidget(title)
         
-        # Scroll area for all settings
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("""
-            QScrollArea {
-                background-color: transparent;
-                border: none;
-            }
-            QScrollBar:vertical {
-                border: none;
+        # Tab widget for Settings and About
+        tabs = QTabWidget()
+        tabs.setStyleSheet("""
+            QTabWidget::pane { border: 1px solid rgba(255, 255, 255, 0.05); }
+            QTabBar::tab {
                 background-color: rgba(255, 255, 255, 0.05);
-                width: 8px;
-                border-radius: 4px;
+                color: #cdd6f4;
+                padding: 8px 20px;
+                border: 1px solid rgba(255, 255, 255, 0.05);
             }
-            QScrollBar::handle:vertical {
-                background-color: rgba(255, 255, 255, 0.2);
-                border-radius: 4px;
+            QTabBar::tab:selected {
+                background-color: rgba(255, 255, 255, 0.15);
+                border-bottom: 2px solid #a6e3a1;
             }
         """)
         
-        scroll_widget = self.create_settings_groups()
-        scroll.setWidget(scroll_widget)
-        layout.addWidget(scroll)
+        # Settings Tab
+        settings_tab = self.create_settings_tab()
+        tabs.addTab(settings_tab, "Settings")
+        
+        # About Tab
+        about_tab = self.create_about_tab()
+        tabs.addTab(about_tab, "About")
+        
+        layout.addWidget(tabs)
         
         # Button layout
         button_layout = QHBoxLayout()
@@ -181,6 +183,193 @@ class SettingsDialog(QDialog):
         container = QWidget()
         container.setLayout(main_layout)
         return container
+    
+    def create_settings_tab(self):
+        """Create the settings tab with scroll area."""
+        tab = QWidget()
+        tab_layout = QVBoxLayout(tab)
+        tab_layout.setContentsMargins(15, 15, 15, 15)
+        
+        # Scroll area for all settings
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background-color: rgba(255, 255, 255, 0.05);
+                width: 8px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: rgba(255, 255, 255, 0.2);
+                border-radius: 4px;
+            }
+        """)
+        
+        scroll_widget = self.create_settings_groups()
+        scroll.setWidget(scroll_widget)
+        tab_layout.addWidget(scroll)
+        
+        return tab
+    
+    def create_about_tab(self):
+        """Create the about tab with version and update information."""
+        tab = QWidget()
+        tab_layout = QVBoxLayout(tab)
+        tab_layout.setContentsMargins(20, 20, 20, 20)
+        tab_layout.setSpacing(15)
+        
+        # Title
+        title = QLabel("SYSTEMIZER")
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        title.setStyleSheet("color: #a6e3a1;")
+        title.setAlignment(Qt.AlignCenter)
+        tab_layout.addWidget(title)
+        
+        # Description
+        description = QLabel("A comprehensive GPU and System monitoring application")
+        description.setStyleSheet("color: #bac2de; text-align: center;")
+        description.setAlignment(Qt.AlignCenter)
+        tab_layout.addWidget(description)
+        
+        tab_layout.addSpacing(20)
+        
+        # Version Group
+        version_group = QGroupBox("Version Information")
+        version_layout = QVBoxLayout()
+        version_layout.setSpacing(10)
+        
+        # Current Version
+        current_version_label = QLabel("Current Version:")
+        current_version_label.setStyleSheet("color: #cdd6f4; font-weight: bold;")
+        version_layout.addWidget(current_version_label)
+        
+        # Get version from settings directly
+        current_version = self.settings.get_application_version()
+        
+        current_version_value = QLabel(f"v{current_version}")
+        current_version_value.setStyleSheet("color: #a6e3a1; font-family: Courier;")
+        current_version_value.setObjectName("current_version_display")
+        version_layout.addWidget(current_version_value)
+        
+        version_layout.addSpacing(10)
+        
+        # Latest Version
+        latest_version_label = QLabel("Latest Version:")
+        latest_version_label.setStyleSheet("color: #cdd6f4; font-weight: bold;")
+        version_layout.addWidget(latest_version_label)
+        
+        latest_version_value = QLabel("Checking...")
+        latest_version_value.setStyleSheet("color: #89dceb; font-family: Courier;")
+        latest_version_value.setObjectName("latest_version")
+        version_layout.addWidget(latest_version_value)
+        
+        version_layout.addSpacing(15)
+        
+        # Check for updates button
+        check_btn = QPushButton("Check for Updates")
+        check_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #89dceb;
+                color: #1e1e2e;
+                border: none;
+                padding: 8px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #74c7ec;
+            }
+            QPushButton:pressed {
+                background-color: #5eb8db;
+            }
+        """)
+        check_btn.clicked.connect(lambda: self.check_application_updates(latest_version_value, current_version))
+        version_layout.addWidget(check_btn)
+        
+        # Latest Version URL
+        latest_version_label2 = QLabel("Download Latest Version:")
+        latest_version_label2.setStyleSheet("color: #cdd6f4; font-weight: bold;")
+        version_layout.addWidget(latest_version_label2)
+        
+        download_btn = QPushButton("Open GitHub Releases")
+        download_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f5c2e7;
+                color: #1e1e2e;
+                border: none;
+                padding: 8px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #f0b5e1;
+            }
+            QPushButton:pressed {
+                background-color: #eba8d6;
+            }
+        """)
+        
+        def open_github():
+            from src.services.version_checker import VersionChecker
+            vc = VersionChecker()
+            vc.open_releases_page()
+        
+        download_btn.clicked.connect(open_github)
+        version_layout.addWidget(download_btn)
+        
+        version_group.setLayout(version_layout)
+        tab_layout.addWidget(version_group)
+        
+        # GitHub Repo Info
+        repo_group = QGroupBox("Project Information")
+        repo_layout = QVBoxLayout()
+        repo_layout.setSpacing(10)
+        
+        repo_label = QLabel("GitHub Repository:")
+        repo_label.setStyleSheet("color: #cdd6f4; font-weight: bold;")
+        repo_layout.addWidget(repo_label)
+        
+        repo_value = QLabel("https://github.com/lynchest/systemizer")
+        repo_value.setStyleSheet("color: #74c7ec; text-decoration: underline;")
+        repo_layout.addWidget(repo_value)
+        
+        repo_group.setLayout(repo_layout)
+        tab_layout.addWidget(repo_group)
+        
+        tab_layout.addStretch()
+        
+        # Automatically check for updates when tab is created
+        self.check_application_updates(latest_version_value, current_version)
+        
+        return tab
+    
+    def check_application_updates(self, latest_version_label, current_version):
+        """Check for application updates and update the label."""
+        latest_version_label.setText("Checking...")
+        
+        from src.services.version_checker import VersionChecker
+        version_checker = VersionChecker()
+        
+        def update_callback(update_available, latest_version):
+            if latest_version:
+                latest_version_label.setText(f"v{latest_version}")
+                if update_available:
+                    latest_version_label.setStyleSheet("color: #f5c2e7; font-family: Courier; font-weight: bold;")
+                else:
+                    latest_version_label.setStyleSheet("color: #a6e3a1; font-family: Courier;")
+            else:
+                latest_version_label.setText("Unable to fetch")
+                latest_version_label.setStyleSheet("color: #f38ba8; font-family: Courier;")
+        
+        version_checker.check_for_updates_async(update_callback)
     
     def create_theme_group(self):
         """Create the theme colors customization group."""
