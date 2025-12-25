@@ -135,7 +135,7 @@ Systemizer has built-in version checking capabilities:
 - **Direct Link**: "Open GitHub Releases" button opens download page
 
 ---
-## �📄 License
+## 📄 License
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 ---
